@@ -1,0 +1,101 @@
+* {
+  box-sizing: border-box;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #222;
+  background: #f4f2ee;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+.controls {
+  padding: 20px;
+  border-right: 1px solid #ddd;
+  background: #fff;
+}
+
+.controls h1 {
+  margin: 0 0 16px;
+  font-size: 1.3rem;
+}
+
+.controls h2 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+}
+
+.controls section {
+  margin-bottom: 24px;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"] {
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"]:disabled + * {
+  opacity: 0.5;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.button-row button {
+  padding: 6px 12px;
+  border: 1px solid #bbb;
+  background: #f7f7f7;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.button-row button:hover:not(:disabled) {
+  background: #efefef;
+}
+
+.button-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.board-pane {
+  padding: 24px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  min-width: 0;
+}

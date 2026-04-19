@@ -1,0 +1,63 @@
+.board {
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  display: block;
+  background: transparent;
+}
+
+.board-bg {
+  fill: #e6b871;
+}
+
+.grid-line {
+  stroke: #2b1d10;
+  stroke-width: 1;
+}
+
+.star-point {
+  fill: #2b1d10;
+}
+
+.stone-black {
+  fill: #111;
+  stroke: #000;
+  stroke-width: 0.5;
+}
+
+.stone-white {
+  fill: #fafafa;
+  stroke: #222;
+  stroke-width: 1;
+}
+
+.label-on-black {
+  fill: #fff;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.label-on-white {
+  fill: #111;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.hit:hover {
+  fill: rgba(0, 0, 0, 0.08);
+}
+
+.hit.occupied {
+  cursor: default;
+}
+
+.hit.occupied:hover {
+  fill: transparent;
+}
