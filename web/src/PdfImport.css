@@ -1,0 +1,305 @@
+.pdf-import {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  gap: 12px;
+}
+
+.pdf-import-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pdf-import-toolbar button {
+  padding: 6px 12px;
+  border: 1px solid #bbb;
+  background: #f7f7f7;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pdf-import-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pdf-paginator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.pdf-paginator input[type="number"] {
+  width: 48px;
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.pdf-paginator input[type="number"]::-webkit-outer-spin-button,
+.pdf-paginator input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pdf-candidates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.pdf-candidates select {
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.pdf-error {
+  padding: 8px 12px;
+  background: #fee;
+  border: 1px solid #fcc;
+  color: #900;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.pdf-import-body {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.pdf-stage {
+  overflow: auto;
+  border: 1px solid #ddd;
+  background: #eee;
+  max-height: calc(100vh - 140px);
+  /* Let the inline-block frame size itself and sit at the top-left. */
+  text-align: left;
+}
+
+.pdf-frame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.pdf-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.pdf-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.pdf-overlay > * {
+  pointer-events: auto;
+}
+
+.label-overlay {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.label-box {
+  fill: rgba(50, 120, 255, 0.1);
+  stroke: #3278ff;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.label-box.selected {
+  stroke: #ff6b00;
+  stroke-width: 4;
+  fill: rgba(255, 107, 0, 0.15);
+}
+
+.label-box.drawing {
+  fill: rgba(50, 120, 255, 0.08);
+  stroke: #3278ff;
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+  pointer-events: none;
+}
+
+.label-delete {
+  fill: #ff6b00;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.label-delete-x {
+  fill: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  font-family: sans-serif;
+  pointer-events: none;
+}
+
+.label-stats {
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.mode-active {
+  background: #3278ff !important;
+  color: white !important;
+  border-color: #3278ff !important;
+}
+
+.pdf-region {
+  fill: rgba(50, 120, 255, 0.08);
+  stroke: #3278ff;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.pdf-candidate {
+  fill: rgba(50, 120, 255, 0.04);
+  stroke: #3278ff;
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+  cursor: pointer;
+}
+
+.pdf-candidate:hover {
+  fill: rgba(50, 120, 255, 0.15);
+  stroke-dasharray: none;
+}
+
+.pdf-grid {
+  stroke: rgba(50, 120, 255, 0.35);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.detected-black {
+  fill: rgba(20, 20, 20, 0.85);
+  stroke: #3278ff;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.detected-white {
+  fill: rgba(250, 250, 250, 0.85);
+  stroke: #3278ff;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.intersection-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.intersection-hit:hover {
+  fill: rgba(50, 120, 255, 0.2);
+}
+
+.pdf-handle {
+  fill: #3278ff;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.pdf-handle:active {
+  cursor: grabbing;
+}
+
+.pdf-import-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pdf-import-sidebar h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin: 8px 0 4px;
+}
+
+.pdf-import-sidebar label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  gap: 8px;
+}
+
+.pdf-import-sidebar input[type="number"] {
+  width: 70px;
+  padding: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.preset-grid button {
+  padding: 6px 4px;
+  font-size: 0.75rem;
+  border: 1px solid #bbb;
+  background: #f7f7f7;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.preset-grid button.active {
+  background: #3278ff;
+  color: white;
+  border-color: #3278ff;
+}
+
+.pdf-import-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.pdf-import-actions button {
+  padding: 8px 12px;
+  border: 1px solid #bbb;
+  background: #f7f7f7;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.pdf-import-actions button:not(:disabled):hover {
+  background: #efefef;
+}
+
+.pdf-import-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
