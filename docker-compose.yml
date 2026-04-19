@@ -1,0 +1,16 @@
+services:
+  api:
+    build: ./api
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./api/models:/app/models:ro
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped

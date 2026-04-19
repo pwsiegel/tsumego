@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.sw?
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Pretrained-model cache (auto-downloaded on first train run)
+api/yolov8n.pt
+# Derived YOLO training dataset (regenerated from training_data/boards/)
+api/training_data/yolo/
+
+# Tooling caches
+.claude/
+
+# Logs
+*.log
