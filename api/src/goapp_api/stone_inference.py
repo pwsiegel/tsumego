@@ -11,7 +11,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "stone_detector.pt"
+from .paths import STONE_DETECTOR_PATH as MODEL_PATH  # noqa: E402
 IMG_SIZE = 512
 PEAK_THRESH = 0.3
 NMS_RADIUS_FRAC = 0.02  # relative to IMG_SIZE

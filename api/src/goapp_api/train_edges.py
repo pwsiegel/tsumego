@@ -22,9 +22,8 @@ from torch.utils.data import DataLoader, Dataset
 from .edge_classifier import EDGE_NAMES, IMG_SIZE, EdgeClassifier
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA = ROOT / "training_data" / "synth_edge_crops"
-DEFAULT_MODEL = ROOT / "models" / "edge_classifier.pt"
+from .paths import EDGE_CLASSIFIER_PATH as DEFAULT_MODEL
+from .paths import SYNTH_EDGE_CROPS_DIR as DEFAULT_DATA
 SEED = 42
 
 

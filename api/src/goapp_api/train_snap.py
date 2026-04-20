@@ -22,9 +22,8 @@ from torch.utils.data import DataLoader, Dataset
 from .snap_classifier import IMG_SIZE, SnapToGrid
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA = ROOT / "training_data" / "synth_snap_crops"
-DEFAULT_MODEL = ROOT / "models" / "snap_classifier.pt"
+from .paths import SNAP_CLASSIFIER_PATH as DEFAULT_MODEL
+from .paths import SYNTH_SNAP_CROPS_DIR as DEFAULT_DATA
 SEED = 42
 
 

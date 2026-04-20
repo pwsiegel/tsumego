@@ -1,8 +1,8 @@
 """Fine-tune YOLOv8-nano on the synthetic page dataset.
 
-Reads `training_data/synth_pages/*.{png,json}`, converts to YOLO format,
-splits train/val 80/20, trains, and saves the best weights to
-`models/board_detector.pt`.
+Reads synth pages from $GOAPP_DATA_DIR/data/synth_pages/, converts to
+YOLO format, splits train/val 80/20, trains, and saves the best weights
+to $GOAPP_DATA_DIR/models/board_detector.pt.
 
 Usage:
     uv --directory api run --extra ml python -m goapp_api.train_board_synth
@@ -19,10 +19,13 @@ from pathlib import Path
 from PIL import Image
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PAGES = ROOT / "training_data" / "synth_pages"
-YOLO_DIR = ROOT / "training_data" / "yolo_synth"
-MODELS_DIR = ROOT / "models"
+from .paths import (
+    BOARD_DETECTOR_PATH,
+    MODELS_DIR,
+    MODELS_RUNS_DIR,
+    SYNTH_PAGES_DIR as DEFAULT_PAGES,
+    YOLO_SYNTH_DIR as YOLO_DIR,
+)
 SEED = 42
 VAL_FRAC = 0.2
 DEFAULT_EPOCHS = 25
@@ -96,7 +99,7 @@ def train(data_yaml: Path, epochs: int, model_out: Path) -> Path:
         data=str(data_yaml),
         epochs=epochs,
         imgsz=IMG_SIZE,
-        project=str(MODELS_DIR / "runs"),
+        project=str(MODELS_RUNS_DIR),
         name="board_detector_synth",
         exist_ok=True,
         patience=4,
@@ -115,7 +118,7 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=500,
                     help="number of synth pages to include in training set")
     ap.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
-    ap.add_argument("--model-out", type=Path, default=MODELS_DIR / "board_detector.pt")
+    ap.add_argument("--model-out", type=Path, default=BOARD_DETECTOR_PATH)
     args = ap.parse_args()
 
     yaml_path = build_yolo_dataset(args.pages, args.limit)

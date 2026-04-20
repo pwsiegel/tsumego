@@ -27,9 +27,10 @@ import cv2
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PAGES = ROOT / "training_data" / "synth_pages"
-DEFAULT_OUT = ROOT / "training_data" / "synth_snap_crops"
+from ..paths import (
+    SYNTH_PAGES_DIR as DEFAULT_PAGES,
+    SYNTH_SNAP_CROPS_DIR as DEFAULT_OUT,
+)
 SEED = 42
 JITTER_MAX_FRAC = 0.10   # up to 10% pad/trim on each side
 

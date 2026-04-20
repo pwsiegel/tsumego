@@ -12,7 +12,7 @@ import numpy as np
 from .edge_classifier import EDGE_NAMES, IMG_SIZE
 
 log = logging.getLogger(__name__)
-MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "edge_classifier.pt"
+from .paths import EDGE_CLASSIFIER_PATH as MODEL_PATH  # noqa: E402
 
 
 class EdgeModelNotLoaded(RuntimeError):

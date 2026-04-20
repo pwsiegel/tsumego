@@ -4,7 +4,7 @@ For each synthetic page + its JSON annotation, crop every annotated board
 bbox and emit:
     <crop_id>.png   — the cropped board image
     <crop_id>.json  — {"black": [[x, y], ...], "white": [[x, y], ...]}
-in a stone-point-labels format matching training_data/stone_points/.
+in a stone-point-labels format matching the hand-labeled stone_points/ dir.
 
 Usage:
     uv --directory api run python -m goapp_api.synth.extract_stone_crops
@@ -21,9 +21,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PAGES = ROOT / "training_data" / "synth_pages"
-DEFAULT_OUT = ROOT / "training_data" / "synth_stone_crops"
+from ..paths import (
+    SYNTH_PAGES_DIR as DEFAULT_PAGES,
+    SYNTH_STONE_CROPS_DIR as DEFAULT_OUT,
+)
 
 
 def main() -> None:

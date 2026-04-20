@@ -26,9 +26,10 @@ import cv2
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PAGES = ROOT / "training_data" / "synth_pages"
-DEFAULT_OUT = ROOT / "training_data" / "synth_grid_crops"
+from ..paths import (
+    SYNTH_GRID_CROPS_DIR as DEFAULT_OUT,
+    SYNTH_PAGES_DIR as DEFAULT_PAGES,
+)
 
 BOARD_SIZE = 19
 EMPTY, BLACK, WHITE = 0, 1, 2

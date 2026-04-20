@@ -24,10 +24,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "training_data" / "stone_points"
-MODEL_DIR = ROOT / "models"
-MODEL_PATH = MODEL_DIR / "stone_detector.pt"
+from .paths import MODELS_DIR as MODEL_DIR
+from .paths import STONE_DETECTOR_PATH as MODEL_PATH
+from .paths import STONE_POINTS_DIR as DATA_DIR
 
 IMG_SIZE = 512
 HEATMAP_SIGMA = 8.0

@@ -1,4 +1,4 @@
-"""Batch-generate synthetic Go-book pages into training_data/synth_pages/.
+"""Batch-generate synthetic Go-book pages into $GOAPP_DATA_DIR/data/synth_pages/.
 
 Usage:
     uv --directory api run python -m goapp_api.synth.gen --count 500
@@ -20,7 +20,7 @@ from pathlib import Path
 from .degrade import degrade
 from .page_compose import compose_page
 
-DEFAULT_OUT = Path(__file__).resolve().parents[3] / "training_data" / "synth_pages"
+from ..paths import SYNTH_PAGES_DIR as DEFAULT_OUT  # noqa: E402
 
 
 def main() -> None:

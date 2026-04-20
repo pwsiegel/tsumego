@@ -38,12 +38,13 @@ from .snap_classifier import IMG_SIZE as SNAP_SIZE, SnapToGrid
 from .train_stones import IMG_SIZE as STONE_SIZE, UNet
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA = ROOT / "training_data" / "synth_grid_crops"
-STONE_WEIGHTS = ROOT / "models" / "stone_detector.pt"
-SNAP_WEIGHTS = ROOT / "models" / "snap_classifier.pt"
-JOINT_STONE_OUT = ROOT / "models" / "stone_detector_joint.pt"
-JOINT_SNAP_OUT = ROOT / "models" / "snap_classifier_joint.pt"
+from .paths import (
+    SNAP_CLASSIFIER_JOINT_PATH as JOINT_SNAP_OUT,
+    SNAP_CLASSIFIER_PATH as SNAP_WEIGHTS,
+    STONE_DETECTOR_JOINT_PATH as JOINT_STONE_OUT,
+    STONE_DETECTOR_PATH as STONE_WEIGHTS,
+    SYNTH_GRID_CROPS_DIR as DEFAULT_DATA,
+)
 SEED = 42
 BOARD_SIZE = 19
 

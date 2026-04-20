@@ -22,9 +22,8 @@ from torch.utils.data import DataLoader, Dataset
 from .grid_classifier import BOARD_SIZE, IMG_SIZE, GridClassifier
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA = ROOT / "training_data" / "synth_grid_crops"
-DEFAULT_MODEL = ROOT / "models" / "grid_classifier.pt"
+from .paths import GRID_CLASSIFIER_PATH as DEFAULT_MODEL
+from .paths import SYNTH_GRID_CROPS_DIR as DEFAULT_DATA
 SEED = 42
 
 

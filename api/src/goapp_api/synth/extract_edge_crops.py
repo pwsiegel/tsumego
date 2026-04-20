@@ -19,9 +19,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PAGES = ROOT / "training_data" / "synth_pages"
-DEFAULT_OUT = ROOT / "training_data" / "synth_edge_crops"
+from ..paths import (
+    SYNTH_EDGE_CROPS_DIR as DEFAULT_OUT,
+    SYNTH_PAGES_DIR as DEFAULT_PAGES,
+)
 
 
 def main() -> None:

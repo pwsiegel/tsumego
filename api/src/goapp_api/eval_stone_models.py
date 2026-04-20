@@ -1,7 +1,7 @@
 """Side-by-side comparison of two stone-detector checkpoints on real crops.
 
-For each real crop under training_data/stone_points/ (the user's manually
-labeled book crops), run both models and emit a single PNG with the crop,
+For each real crop in the hand-labeled stone_points/ directory, run both
+models and emit a single PNG with the crop,
 each model's overlaid detections, and confidence labels.
 """
 
@@ -19,7 +19,7 @@ from .stone_inference import IMG_SIZE, _extract_peaks, _estimate_display_radius
 from .train_stones import UNet
 
 
-ROOT = Path(__file__).resolve().parents[2]
+from .paths import MODELS_DIR, STONE_POINTS_DIR  # noqa: E402
 
 
 def load(model_path: Path) -> tuple[UNet, torch.device]:
@@ -106,11 +106,11 @@ def side_by_side(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--real-model", type=Path,
-                    default=ROOT / "models" / "stone_detector.pt")
+                    default=MODELS_DIR / "stone_detector.pt")
     ap.add_argument("--synth-model", type=Path,
-                    default=ROOT / "models" / "stone_detector_synth.pt")
+                    default=MODELS_DIR / "stone_detector_synth.pt")
     ap.add_argument("--crops-dir", type=Path,
-                    default=ROOT / "training_data" / "stone_points")
+                    default=STONE_POINTS_DIR)
     ap.add_argument("--out", type=Path, default=Path("/tmp/synth_eval"))
     ap.add_argument("--n", type=int, default=8)
     args = ap.parse_args()

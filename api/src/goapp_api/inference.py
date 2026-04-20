@@ -12,7 +12,7 @@ from .detection import BoardBBox
 
 log = logging.getLogger(__name__)
 
-MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "board_detector.pt"
+from .paths import BOARD_DETECTOR_PATH as MODEL_PATH  # noqa: E402
 CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.4
 # Real Go boards (even a narrow top/bottom strip of 19×5) cap around 4:1.

@@ -1,12 +1,7 @@
 """Training-data management: persist labeled examples to disk.
 
-Layout (under repo_root/api/training_data/):
-    boards/
-        <timestamp>_<shortid>.png       # page image
-        <timestamp>_<shortid>.json      # {"bboxes": [[x0,y0,x1,y1], ...]}
-    stone_points/
-        <board_id>_b<idx>.png           # board-crop image
-        <board_id>_b<idx>.json          # {"black": [[x,y],...], "white": [[x,y],...]}
+Paths are sourced from goapp_api.paths (driven by $GOAPP_DATA_DIR, default
+~/data/go-app). Nothing lives inside the repo.
 """
 
 from __future__ import annotations
@@ -23,11 +18,9 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-# api/src/goapp_api/training.py → api/training_data/
-TRAINING_ROOT = Path(__file__).resolve().parents[2] / "training_data"
-BOARDS_DIR = TRAINING_ROOT / "boards"
-STONE_POINTS_DIR = TRAINING_ROOT / "stone_points"
-STONE_TASKS_DIR = TRAINING_ROOT / "stone_tasks"  # auto-detected crops
+from .paths import BOARDS_DEPRECATED_DIR as BOARDS_DIR
+from .paths import DATA_DIR as TRAINING_ROOT
+from .paths import STONE_POINTS_DIR, STONE_TASKS_DIR
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ import numpy as np
 from .snap_classifier import IMG_SIZE
 
 log = logging.getLogger(__name__)
-MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "snap_classifier.pt"
+from .paths import SNAP_CLASSIFIER_PATH as MODEL_PATH  # noqa: E402
 
 
 class SnapModelNotLoaded(RuntimeError):

@@ -12,7 +12,7 @@ import numpy as np
 from .grid_classifier import BOARD_SIZE, IMG_SIZE
 
 log = logging.getLogger(__name__)
-MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "grid_classifier.pt"
+from .paths import GRID_CLASSIFIER_PATH as MODEL_PATH  # noqa: E402
 
 
 class GridModelNotLoaded(RuntimeError):
