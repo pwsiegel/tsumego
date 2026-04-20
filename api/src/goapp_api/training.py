@@ -133,7 +133,7 @@ def ingest_pdf_for_stone_tasks_stream(
     import io
     import shutil
     import pypdfium2 as pdfium
-    from .inference import detect_boards_yolo, model_available
+    from .inference import detect_boards_with_edges, model_available
 
     if not model_available():
         raise RuntimeError(
@@ -153,11 +153,11 @@ def ingest_pdf_for_stone_tasks_stream(
         pil_img = page.render(scale=2.0).to_pil()
         img_bgr = np.array(pil_img)[..., ::-1].copy()
         try:
-            boards = detect_boards_yolo(img_bgr)
+            detections = detect_boards_with_edges(img_bgr)
         except Exception as e:
             log.warning("detection failed on page %d: %s", page_num + 1, e)
-            boards = []
-        for b in boards:
+            detections = []
+        for b, edges in detections:
             x0 = max(0, b.x0); y0 = max(0, b.y0)
             x1 = min(img_bgr.shape[1], b.x1); y1 = min(img_bgr.shape[0], b.y1)
             if x1 <= x0 or y1 <= y0:
@@ -174,6 +174,7 @@ def ingest_pdf_for_stone_tasks_stream(
                 "source": source_name, "page": page_num + 1,
                 "bbox_in_page": [int(x0), int(y0), int(x1), int(y1)],
                 "confidence": b.h_lines / 1000.0,
+                "edges": edges,
             }))
             count += 1
         yield {"page": page_num + 1, "tasks_added": count}

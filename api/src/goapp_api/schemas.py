@@ -62,3 +62,67 @@ class DetectedCircle(BaseModel):
 
 class BoardCirclesResponse(BaseModel):
     circles: list[DetectedCircle]
+
+
+class CnnStone(BaseModel):
+    x: float
+    y: float
+    r: float
+    color: str
+    conf: float
+
+
+class CnnStonesResponse(BaseModel):
+    stones: list[CnnStone]
+
+
+class SgfStone(BaseModel):
+    col: int
+    row: int
+    color: str
+
+
+class SgfResponse(BaseModel):
+    sgf: str
+    stones: list[SgfStone]
+    pitch: float
+    origin_x: float
+    origin_y: float
+    edges_detected: dict[str, bool]
+
+
+class EdgeProbsResponse(BaseModel):
+    left: float
+    right: float
+    top: float
+    bottom: float
+
+
+class ClearStoneTasksResponse(BaseModel):
+    removed: int
+
+
+class GridResponse(BaseModel):
+    grid: list[list[int]]            # 19x19 of 0=empty, 1=B, 2=W
+    edges: dict[str, bool]           # board-boundary bits from YOLO
+    window: dict[str, int]           # col_min, col_max, row_min, row_max
+    sgf: str                         # SGF built from grid + window
+
+
+class PipelineStone(BaseModel):
+    col: int
+    row: int
+    color: str
+    x_px: float
+    y_px: float
+
+
+class PipelineResponse(BaseModel):
+    stones: list[PipelineStone]
+    sgf: str
+    edges: dict[str, bool]
+    window: dict[str, int]
+    pitch: dict[str, float]
+    origin: dict[str, float]
+    visible_cols: int
+    visible_rows: int

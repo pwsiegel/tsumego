@@ -11,15 +11,43 @@ from .schemas import (
     BoardBBoxOut,
     BoardCirclesResponse,
     BoardGridResponse,
+    ClearStoneTasksResponse,
+    CnnStone,
+    CnnStonesResponse,
     DetectBoardsResponse,
     DetectedCircle,
+    EdgeProbsResponse,
+    GridResponse,
     HealthResponse,
     ListStoneTasksResponse,
+    PipelineResponse,
+    PipelineStone,
     SaveBoardLabelsResponse,
     SaveStonePointsResponse,
+    SgfResponse,
+    SgfStone,
     StoneTask,
 )
+from .pipeline import run_pipeline
+from .grid_inference import (
+    GridModelNotLoaded,
+    model_available as grid_model_available,
+    predict_grid,
+)
+from .grid_to_sgf import grid_to_sgf, window_from_edges_and_bbox
+from .edge_inference import (
+    EdgeModelNotLoaded,
+    detect_edges_with_probs,
+    model_available as edge_model_available,
+)
+from .sgf import stones_to_sgf
+from .stone_inference import (
+    StoneModelNotLoaded,
+    detect_stones_cnn,
+)
+from .stone_inference import model_available as stone_model_available
 from .training import (
+    _load_task_crop_array,
     count_board_labels,
     count_stone_point_labels,
     detect_board_grid,
@@ -144,6 +172,159 @@ def task_circles_endpoint(
     except (IndexError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return BoardCirclesResponse(circles=[DetectedCircle(**c) for c in circles])
+
+
+@app.get("/api/training/task-stones-cnn/{task_id}", response_model=CnnStonesResponse)
+def task_stones_cnn_endpoint(
+    task_id: str,
+    peak_thresh: float = 0.3,
+) -> CnnStonesResponse:
+    if not stone_model_available():
+        raise HTTPException(status_code=503, detail="stone detector model not trained")
+    try:
+        crop = _load_task_crop_array(task_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        stones = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    except StoneModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return CnnStonesResponse(stones=[CnnStone(**s) for s in stones])
+
+
+@app.get("/api/training/task-edges/{task_id}", response_model=EdgeProbsResponse)
+def task_edges_endpoint(task_id: str) -> EdgeProbsResponse:
+    if not edge_model_available():
+        raise HTTPException(status_code=503, detail="edge classifier not trained")
+    try:
+        crop = _load_task_crop_array(task_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        probs = detect_edges_with_probs(crop)
+    except EdgeModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return EdgeProbsResponse(**probs)
+
+
+@app.get("/api/training/task-pipeline/{task_id}", response_model=PipelineResponse)
+def task_pipeline_endpoint(task_id: str, peak_thresh: float = 0.3) -> PipelineResponse:
+    """End-to-end pipeline: edges (classifier) + snap (regressor) + stones
+    (CNN) → SGF."""
+    try:
+        crop = _load_task_crop_array(task_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        result = run_pipeline(crop, peak_thresh=peak_thresh)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"pipeline error: {e}") from e
+    return PipelineResponse(
+        stones=[PipelineStone(**s) for s in result.stones],
+        sgf=result.sgf,
+        edges=result.edges,
+        window=result.window,
+        pitch=result.pitch,
+        origin=result.origin,
+        visible_cols=result.visible_cols,
+        visible_rows=result.visible_rows,
+    )
+
+
+@app.get("/api/training/task-grid/{task_id}", response_model=GridResponse)
+def task_grid_endpoint(task_id: str) -> GridResponse:
+    """Run the grid classifier on this task's crop and return the 19x19
+    prediction + implied window + SGF. The crop is the YOLO-produced bbox
+    (tight-ish since YOLO was trained on tight bboxes); the edges attached
+    to the task at ingest time tell us which sides are real boundaries."""
+    if not grid_model_available():
+        raise HTTPException(status_code=503, detail="grid classifier not trained")
+    import json
+    from .training import STONE_TASKS_DIR
+    json_path = STONE_TASKS_DIR / f"{task_id}.json"
+    if not json_path.exists():
+        raise HTTPException(status_code=404, detail=task_id)
+    meta = json.loads(json_path.read_text())
+    edges = meta.get("edges", {"left": False, "right": False, "top": False, "bottom": False})
+    try:
+        crop = _load_task_crop_array(task_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    try:
+        grid, probs = predict_grid(crop)
+    except GridModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    # Figure out which window this crop corresponds to. When L+R both True
+    # or T+B both True we know the full extent (0..18). Otherwise we look at
+    # the model's predictions: the visible window should be the smallest
+    # contiguous region around the stones it predicted.
+    stone_rows = [r for r in range(19) for c in range(19) if grid[r, c] > 0]
+    stone_cols = [c for c in range(19) for r in range(19) if grid[r, c] > 0]
+    n_cells_w = max(6, (max(stone_cols) - min(stone_cols) + 1) if stone_cols else 10)
+    n_cells_h = max(6, (max(stone_rows) - min(stone_rows) + 1) if stone_rows else 10)
+    window = window_from_edges_and_bbox(edges, n_cells_w, n_cells_h)
+    sgf = grid_to_sgf(grid, window)
+    return GridResponse(
+        grid=grid.tolist(),
+        edges=edges,
+        window=window,
+        sgf=sgf,
+    )
+
+
+@app.post("/api/training/clear-stone-tasks", response_model=ClearStoneTasksResponse)
+def clear_stone_tasks_endpoint() -> ClearStoneTasksResponse:
+    import shutil
+    from .training import STONE_TASKS_DIR
+    if not STONE_TASKS_DIR.exists():
+        return ClearStoneTasksResponse(removed=0)
+    removed = sum(1 for _ in STONE_TASKS_DIR.glob("*.png"))
+    shutil.rmtree(STONE_TASKS_DIR)
+    STONE_TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    return ClearStoneTasksResponse(removed=removed)
+
+
+@app.get("/api/training/task-sgf/{task_id}", response_model=SgfResponse)
+def task_sgf_endpoint(
+    task_id: str,
+    peak_thresh: float = 0.3,
+) -> SgfResponse:
+    if not stone_model_available():
+        raise HTTPException(status_code=503, detail="stone detector model not trained")
+    try:
+        crop = _load_task_crop_array(task_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        detected = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    except StoneModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    sgf_text, mapping = stones_to_sgf(crop, detected)
+    placed: list[SgfStone] = []
+    for s in detected:
+        col = int(round((s["x"] - mapping.origin_x) / max(mapping.pitch, 1e-6)))
+        row = int(round((s["y"] - mapping.origin_y) / max(mapping.pitch, 1e-6)))
+        col = max(0, min(18, col))
+        row = max(0, min(18, row))
+        placed.append(SgfStone(col=col, row=row, color=s["color"]))
+    return SgfResponse(
+        sgf=sgf_text,
+        stones=placed,
+        pitch=mapping.pitch,
+        origin_x=mapping.origin_x,
+        origin_y=mapping.origin_y,
+        edges_detected=mapping.edges_detected,
+    )
 
 
 @app.post("/api/training/save-stone-points", response_model=SaveStonePointsResponse)
