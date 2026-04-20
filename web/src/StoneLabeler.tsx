@@ -380,32 +380,41 @@ export function StoneLabeler({ onExit }: Props) {
 
       <div className="stone-stage">
         {current && (
-          <div className="stone-frame">
-            <img
-              src={`/api/training/task-crops/${current.task_id}.png`}
-              alt="board crop"
-              className="stone-img"
-            />
-            {imgSize && (
-              <svg
-                ref={svgRef}
-                viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
-                className="stone-overlay"
-                preserveAspectRatio="none"
-                onClick={handleClick}
-                onContextMenu={handleContextMenu}
-              >
-                {circles.map((c, i) => {
-                  const cls =
-                    c.color === 'B' ? 'circle-black'
-                    : c.color === 'W' ? 'circle-white'
-                    : 'circle-unassigned';
-                  return (
-                    <circle key={i} cx={c.x} cy={c.y} r={c.r} className={cls} />
-                  );
-                })}
-              </svg>
-            )}
+          <div className="stone-pair">
+            <div className="stone-panel">
+              <img
+                src={`/api/training/task-crops/${current.task_id}.png`}
+                alt="board crop"
+                className="stone-img"
+              />
+              {imgSize && (
+                <svg
+                  ref={svgRef}
+                  viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                  className="stone-overlay"
+                  preserveAspectRatio="none"
+                  onClick={handleClick}
+                  onContextMenu={handleContextMenu}
+                >
+                  {circles.map((c, i) => {
+                    const cls =
+                      c.color === 'B' ? 'circle-black'
+                      : c.color === 'W' ? 'circle-white'
+                      : 'circle-unassigned';
+                    return (
+                      <circle key={i} cx={c.x} cy={c.y} r={c.r} className={cls} />
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
+            <div className="stone-panel">
+              <img
+                src={`/api/training/task-crops/${current.task_id}.png`}
+                alt="reference (unannotated)"
+                className="stone-img"
+              />
+            </div>
           </div>
         )}
         {!current && tasks.length === 0 && (

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Board } from './Board';
+import { CompareDetectors } from './CompareDetectors';
 import { PdfImport } from './PdfImport';
 import { StoneLabeler } from './StoneLabeler';
 import type { Color, Stone } from './types';
@@ -7,7 +8,7 @@ import { other } from './types';
 import './App.css';
 
 type Mode = 'setup' | 'play';
-type View = 'board' | 'import' | 'stones';
+type View = 'board' | 'import' | 'stones' | 'compare';
 
 function App() {
   const [stones, setStones] = useState<Stone[]>([]);
@@ -150,6 +151,9 @@ function App() {
             <button onClick={() => setView('stones')}>
               Label stones…
             </button>
+            <button onClick={() => setView('compare')}>
+              Compare detectors…
+            </button>
           </div>
         </section>
       </aside>
@@ -173,6 +177,9 @@ function App() {
         )}
         {view === 'stones' && (
           <StoneLabeler onExit={() => setView('board')} />
+        )}
+        {view === 'compare' && (
+          <CompareDetectors onExit={() => setView('board')} />
         )}
       </main>
     </div>

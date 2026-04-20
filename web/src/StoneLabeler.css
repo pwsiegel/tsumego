@@ -171,17 +171,26 @@
   padding: 12px;
 }
 
-.stone-frame {
+.stone-pair {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  align-items: flex-start;
+}
+
+.stone-panel {
   position: relative;
-  display: inline-block;
+  flex: 1;
+  min-width: 0;
   line-height: 0;
 }
 
 .stone-img {
   display: block;
-  max-width: 100%;
-  max-height: 80vh;
+  width: 100%;
   height: auto;
+  max-height: 85vh;
+  object-fit: contain;
 }
 
 .stone-overlay {
