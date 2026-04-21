@@ -1,10 +1,13 @@
-"""Stone detection via the trained UNet heatmap regressor."""
+"""Stone detection via the trained YOLOv8 detector.
+
+Two classes: 0 = B (black), 1 = W (white). Each prediction is a bbox
+around a stone; we take the bbox center as the stone position.
+"""
 
 from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -12,153 +15,122 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 from .paths import STONE_DETECTOR_PATH as MODEL_PATH  # noqa: E402
-IMG_SIZE = 512
-PEAK_THRESH = 0.3
-NMS_RADIUS_FRAC = 0.02  # relative to IMG_SIZE
+
+PEAK_THRESH = 0.3  # kept as the `peak_thresh` kwarg name for API compat
+TRAIN_IMG_SIZE = 640  # training imgsz; used as default for larger crops
 
 
 class StoneModelNotLoaded(RuntimeError):
     pass
 
 
+def model_available() -> bool:
+    return MODEL_PATH.exists()
+
+
 @lru_cache(maxsize=1)
 def _load_model():
     if not MODEL_PATH.exists():
         raise StoneModelNotLoaded(f"model file not found: {MODEL_PATH}")
-    import torch
-    from .train_stones import UNet
-
-    log.info("loading stone UNet from %s", MODEL_PATH)
-    device = _pick_device()
-    model = UNet()
-    state = torch.load(str(MODEL_PATH), map_location=device)
-    model.load_state_dict(state["model"])
-    model.to(device)
-    model.eval()
-    return model, device
-
-
-def _pick_device():
-    import torch
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def model_available() -> bool:
-    return MODEL_PATH.exists()
+    from ultralytics import YOLO
+    log.info("loading stone YOLO from %s", MODEL_PATH)
+    model = YOLO(str(MODEL_PATH))
+    return model
 
 
 def detect_stones_cnn(
     crop_bgr: np.ndarray,
     peak_thresh: float = PEAK_THRESH,
 ) -> list[dict]:
-    """Run the UNet on a board crop; return detected stone centers.
+    """Run YOLO on a board crop; return detected stone centers.
 
-    Each entry: {"x", "y", "r", "color", "conf"} in original crop pixel space.
+    Each entry: {"x", "y", "r", "color", "conf"} in the crop's pixel
+    coordinate space. `peak_thresh` is used as the YOLO confidence
+    threshold (kept as kwarg name for API compatibility).
     """
-    import torch
-
-    model, device = _load_model()
+    model = _load_model()
     orig_h, orig_w = crop_bgr.shape[:2]
     if orig_h == 0 or orig_w == 0:
         return []
 
-    gray = (
+    # Match training stone-scale. Upscaling a small crop (e.g. cho-chikun
+    # 336x177) to 640 stretches stones well past the training distribution
+    # and YOLO produces near-zero detections. For small crops, run at
+    # their native size (rounded up to a 32-multiple).
+    max_dim = max(orig_h, orig_w)
+    if max_dim <= TRAIN_IMG_SIZE:
+        imgsz = max(320, ((max_dim + 31) // 32) * 32)
+    else:
+        imgsz = TRAIN_IMG_SIZE
+
+    results = model.predict(
+        crop_bgr,
+        imgsz=imgsz,
+        conf=float(peak_thresh),
+        iou=0.5,
+        augment=True,  # test-time aug: multi-scale + flip, merged via NMS
+        verbose=False,
+    )
+    if not results:
+        return []
+    res = results[0]
+    if res.boxes is None or len(res.boxes) == 0:
+        return []
+
+    # xyxy in original-image pixels; cls in {0: B, 1: W}; conf in [0, 1]
+    xyxy = res.boxes.xyxy.cpu().numpy()
+    cls = res.boxes.cls.cpu().numpy().astype(int)
+    conf = res.boxes.conf.cpu().numpy()
+
+    # Post-classify color from the actual pixel values at each detection
+    # center. Pixel darkness is unambiguous even when YOLO's class head
+    # gets confused on lower-contrast scans.
+    gray_img = (
         cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
         if crop_bgr.ndim == 3 else crop_bgr
     )
-    resized = cv2.resize(gray, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_AREA)
-    tensor = (
-        torch.from_numpy(resized).float().unsqueeze(0).unsqueeze(0) / 255.0
-    ).to(device)
-
-    with torch.no_grad():
-        heat = model(tensor)[0].cpu().numpy()  # (2, H, W)
-
-    sx = orig_w / IMG_SIZE
-    sy = orig_h / IMG_SIZE
-    nms_r = max(3, int(IMG_SIZE * NMS_RADIUS_FRAC))
 
     detections: list[dict] = []
-    for ch, color in enumerate(("B", "W")):
-        peaks = _extract_peaks(heat[ch], peak_thresh, nms_r)
-        for px, py, conf in peaks:
-            detections.append({
-                "x": float(px * sx),
-                "y": float(py * sy),
-                "r": 0.0,  # filled in below, once we know the stone pitch
-                "color": color,
-                "conf": float(conf),
-            })
-    display_r = _estimate_display_radius(
-        detections,
-        fallback=min(orig_h, orig_w) * 0.025,
-        image_max=min(orig_h, orig_w),
-    )
+    for (x0, y0, x1, y1), c, p in zip(xyxy, cls, conf):
+        cx = float((x0 + x1) / 2.0)
+        cy = float((y0 + y1) / 2.0)
+        r = float(max(x1 - x0, y1 - y0) / 2.0)
+        color = "B" if int(c) == 0 else "W"
+        # Sample the center 1/3 of the bbox — avoids grid lines at stone
+        # edges and captures the stone's actual fill color.
+        inner = max(1, int(r * 0.33))
+        ix0 = max(0, int(cx - inner))
+        ix1 = min(gray_img.shape[1], int(cx + inner) + 1)
+        iy0 = max(0, int(cy - inner))
+        iy1 = min(gray_img.shape[0], int(cy + inner) + 1)
+        if ix1 > ix0 and iy1 > iy0:
+            mean_gray = float(gray_img[iy0:iy1, ix0:ix1].mean())
+            if mean_gray < 100:
+                color = "B"
+            elif mean_gray > 180:
+                color = "W"
+        detections.append({
+            "x": cx,
+            "y": cy,
+            "r": r,
+            "color": color,
+            "conf": float(p),
+        })
+
+    # Deduplicate: TTA can leave duplicates across scales. True duplicates
+    # sit within ~0.2·pitch of each other; adjacent-cell stones are a
+    # full pitch apart. A threshold of half the smaller radius (since
+    # r ≈ 0.4·pitch, this is ~0.2·pitch) keeps adjacent stones separate
+    # while collapsing overlapping detections of the same stone.
+    detections.sort(key=lambda d: -d["conf"])
+    kept: list[dict] = []
     for d in detections:
-        d["r"] = display_r
-    # Same physical stone can spike both channels — most often when a white
-    # number/mark is drawn inside a black stone (or vice versa), since the
-    # inverted-color glyph genuinely looks like a small version of the
-    # opposite color. Merge aggressively across channels and keep the
-    # higher-confidence detection. The merge distance is floored at a
-    # fraction of the crop size so it can't collapse when nearest-neighbor
-    # distances themselves are tiny (which happens exactly when duplicates
-    # dominate).
-    detections.sort(key=lambda s: -s["conf"])
-    deduped: list[dict] = []
-    merge_dist = max(
-        display_r * 1.6,
-        min(orig_h, orig_w) * 0.035,
-        nms_r * max(sx, sy),
-    )
-    for d in detections:
-        if any(
-            (d["x"] - m["x"]) ** 2 + (d["y"] - m["y"]) ** 2 < merge_dist ** 2
-            for m in deduped
-        ):
-            continue
-        deduped.append(d)
-    return deduped
-
-
-def _extract_peaks(
-    heatmap: np.ndarray, thresh: float, nms_radius: int,
-) -> list[tuple[float, float, float]]:
-    """Non-max-suppressed peaks above `thresh`. Returns (x, y, conf) list."""
-    ksize = nms_radius * 2 + 1
-    dilated = cv2.dilate(heatmap, np.ones((ksize, ksize), np.uint8))
-    is_peak = (heatmap == dilated) & (heatmap >= thresh)
-    ys, xs = np.where(is_peak)
-    out = [(float(x), float(y), float(heatmap[y, x])) for x, y in zip(xs, ys)]
-    out.sort(key=lambda p: -p[2])
-    return out
-
-
-def _estimate_display_radius(
-    detections: list[dict], fallback: float, image_max: float | None = None,
-) -> float:
-    """Guess a reasonable drawing radius from the typical stone-to-nearest-
-    neighbor distance (≈ one grid pitch; stones are ~45% of a pitch).
-    Clamped from above so sparse boards don't produce absurdly large circles:
-    a stone can't be bigger than ~10% of the shorter crop dimension on a
-    19x19 board."""
-    if len(detections) < 2:
-        return max(fallback, 6.0)
-    xs = np.array([d["x"] for d in detections])
-    ys = np.array([d["y"] for d in detections])
-    nearest_dists: list[float] = []
-    for i in range(len(detections)):
-        dx = xs - xs[i]
-        dy = ys - ys[i]
-        d2 = dx * dx + dy * dy
-        d2[i] = np.inf
-        nearest_dists.append(float(np.sqrt(d2.min())))
-    typical = float(np.median(nearest_dists))
-    r = typical * 0.4
-    if image_max is not None:
-        r = min(r, image_max * 0.1)
-    return max(6.0, r)
+        dup = False
+        for k in kept:
+            merge_r = min(d["r"], k["r"])
+            if (d["x"] - k["x"]) ** 2 + (d["y"] - k["y"]) ** 2 < merge_r ** 2:
+                dup = True
+                break
+        if not dup:
+            kept.append(d)
+    return kept

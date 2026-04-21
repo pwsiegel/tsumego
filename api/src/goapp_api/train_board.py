@@ -64,9 +64,8 @@ def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
         lines = []
         for board in data.get("boards", []):
             # Slightly-padded bbox, single "board" class. YOLO emits a box
-            # that contains the grid plus a safety margin; grid_detect.py
-            # snaps back to tight bounds at ingest. Edge bits come from a
-            # separate specialist classifier, not YOLO's class head.
+            # that contains the grid plus a safety margin. Edge bits come
+            # from a separate specialist classifier, not YOLO's class head.
             x0, y0, x1, y1 = board.get("bbox_padded", board["bbox"])
             cx = ((x0 + x1) / 2) / w
             cy = ((y0 + y1) / 2) / h
