@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { Board } from './Board';
+import type { Stone } from './types';
 import './StoneTest.css';
 
 type BoardListItem = {
@@ -8,20 +10,31 @@ type BoardListItem = {
   confidence: number;
 };
 
-type CnnStone = {
+type DiscretizedStone = {
   x: number;
   y: number;
-  r: number;
   color: string;   // "B" or "W"
   conf: number;
+  col_local: number;
+  row_local: number;
+  col: number;
+  row: number;
 };
 
-type BoardStonesLocal = {
+type BoardDiscretize = {
   page_idx: number;
   bbox_idx: number;
   crop_width: number;
   crop_height: number;
-  stones: CnnStone[];
+  cell_size: number;
+  origin_x: number;
+  origin_y: number;
+  visible_cols: number;
+  visible_rows: number;
+  col_min: number;
+  row_min: number;
+  edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
+  stones: DiscretizedStone[];
 };
 
 type Props = {
@@ -31,7 +44,7 @@ type Props = {
 export function StoneTest({ onExit }: Props) {
   const [boards, setBoards] = useState<BoardListItem[]>([]);
   const [selected, setSelected] = useState<number>(0);
-  const [result, setResult] = useState<BoardStonesLocal | null>(null);
+  const [result, setResult] = useState<BoardDiscretize | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -67,14 +80,14 @@ export function StoneTest({ onExit }: Props) {
     (async () => {
       try {
         const r = await fetch(
-          `/api/pdf/board-stones/${item.page_idx}/${item.bbox_idx}?peak_thresh=${thresh}&_t=${Date.now()}`,
+          `/api/pdf/board-discretize/${item.page_idx}/${item.bbox_idx}?peak_thresh=${thresh}&_t=${Date.now()}`,
           { cache: 'no-store' },
         );
         if (inFlight.current !== key) return;
-        if (r.ok) setResult((await r.json()) as BoardStonesLocal);
+        if (r.ok) setResult((await r.json()) as BoardDiscretize);
         else {
           const body = await r.json().catch(() => ({ detail: r.statusText }));
-          setStatus(`Stone detect failed: ${body.detail ?? r.statusText}`);
+          setStatus(`Discretize failed: ${body.detail ?? r.statusText}`);
         }
       } finally {
         if (inFlight.current === key) setLoading(false);
@@ -138,27 +151,32 @@ export function StoneTest({ onExit }: Props) {
         style={{ pointerEvents: 'none' }}
       >
         {result.stones.map((s, i) => (
-          <g key={i}>
-            <circle
-              cx={s.x} cy={s.y} r={s.r}
-              fill="none"
-              stroke={s.color === 'B' ? 'rgb(40,180,80)' : 'rgb(220,80,80)'}
-              strokeWidth={stroke * 2}
-              opacity={0.9}
-            />
-            <circle
-              cx={s.x} cy={s.y} r={2}
-              fill={s.color === 'B' ? 'rgb(40,180,80)' : 'rgb(220,80,80)'}
-            />
-          </g>
+          <circle
+            key={i}
+            cx={s.x} cy={s.y} r={Math.max(4, result.cell_size * 0.45)}
+            fill="none"
+            stroke={s.color === 'B' ? 'rgb(40,180,80)' : 'rgb(220,80,80)'}
+            strokeWidth={stroke * 2}
+            opacity={0.85}
+          />
         ))}
       </svg>
     );
   };
 
+  const boardStones: Stone[] = (result?.stones ?? []).map((s) => ({
+    x: s.col,
+    y: s.row,
+    color: s.color === 'B' ? 'B' : 'W',
+  }));
+
   const current = boards[selected];
   const bCount = result?.stones.filter((s) => s.color === 'B').length ?? 0;
   const wCount = result?.stones.filter((s) => s.color === 'W').length ?? 0;
+  const edgeTxt = result
+    ? (['left', 'right', 'top', 'bottom'] as const)
+        .filter((k) => result.edges[k]).join('+') || 'none'
+    : '—';
 
   return (
     <div className="stone-test">
@@ -193,7 +211,9 @@ export function StoneTest({ onExit }: Props) {
             ? 'No PDF uploaded.'
             : current
               ? `Board ${selected + 1} of ${boards.length}${loading ? ' (detecting…)' : ''}  ·  page ${current.page_idx + 1}, bbox ${current.bbox_idx}${
-                  result ? `  ·  ${bCount} B, ${wCount} W` : ''
+                  result
+                    ? `  ·  ${bCount} B, ${wCount} W  ·  cell ${result.cell_size.toFixed(1)} px  ·  window (${result.col_min}..${result.col_min + result.visible_cols - 1}, ${result.row_min}..${result.row_min + result.visible_rows - 1})  ·  edges: ${edgeTxt}`
+                    : ''
                 }`
               : ''}
         </div>
@@ -230,6 +250,9 @@ export function StoneTest({ onExit }: Props) {
               className="stone-img"
             />
             {renderOverlay()}
+          </div>
+          <div className="stone-board">
+            <Board stones={boardStones} onPlay={() => {}} />
           </div>
         </div>
       )}
