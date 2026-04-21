@@ -5,19 +5,16 @@ weights live inside the repo, so `git clean -dfx` in the repo is safe.
 
 Subdirectory layout under $GOAPP_DATA_DIR:
     data/
-        stone_points/        hand-labeled stone-center crops (real data)
-        stone_tasks/         per-ingest PDF crops (regenerated each ingest)
         synth_pages/         synthetic page images + annotations
-        synth_stone_crops/   derived: per-board crops with stone centers
         synth_edge_crops/    derived: per-board crops with edge flags
         synth_grid_crops/    derived: per-board crops with 19x19 grid labels
         yolo/                derived: YOLO dataset built from synth_pages
+        yolo_stones/         derived: YOLO stone-detector dataset
         bbox_test/           per-session PDF pages for the bbox tester
     models/
         board_detector.pt    YOLO board bbox detector
         edge_classifier.pt   4-bit edge classifier
-        stone_detector.pt    stone-center CNN (UNet)
-        grid_classifier.pt   19x19 grid classifier (experimental)
+        stone_detector.pt    YOLO stone detector (classes: B, W)
         runs/                ultralytics training run artifacts
 """
 
@@ -34,15 +31,8 @@ def _root() -> Path:
 DATA_DIR = _root() / "data"
 MODELS_DIR = _root() / "models"
 
-# --- hand-labeled / durable data ---
-STONE_POINTS_DIR = DATA_DIR / "stone_points"
-
-# --- per-session ingest data ---
-STONE_TASKS_DIR = DATA_DIR / "stone_tasks"
-
 # --- synth data (regenerable via goapp_api.synth) ---
 SYNTH_PAGES_DIR = DATA_DIR / "synth_pages"
-SYNTH_STONE_CROPS_DIR = DATA_DIR / "synth_stone_crops"
 SYNTH_EDGE_CROPS_DIR = DATA_DIR / "synth_edge_crops"
 SYNTH_GRID_CROPS_DIR = DATA_DIR / "synth_grid_crops"
 
@@ -56,6 +46,5 @@ BBOX_TEST_DIR = DATA_DIR / "bbox_test"
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 EDGE_CLASSIFIER_PATH = MODELS_DIR / "edge_classifier.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
-GRID_CLASSIFIER_PATH = MODELS_DIR / "grid_classifier.pt"
 
 MODELS_RUNS_DIR = MODELS_DIR / "runs"
