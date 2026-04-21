@@ -100,6 +100,7 @@ def _rotate(
     new_boards: list[BoardAnnotation] = []
     for b in boards:
         tight = rotate_bbox(*b.bbox)
+        padded = rotate_bbox(*b.bbox_padded)
         loose = rotate_bbox(*b.loose_bbox)
         new_stones = [
             (
@@ -111,6 +112,7 @@ def _rotate(
         ]
         new_boards.append(BoardAnnotation(
             bbox=tight,
+            bbox_padded=padded,
             loose_bbox=loose,
             window=b.window,
             edges_on_board=b.edges_on_board,
