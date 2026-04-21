@@ -11,18 +11,7 @@ class BoardBBoxOut(BaseModel):
     y0: int
     x1: int
     y1: int
-    h_lines: int
-    v_lines: int
-
-
-class DetectBoardsResponse(BaseModel):
-    boards: list[BoardBBoxOut]
-
-
-class SaveBoardLabelsResponse(BaseModel):
-    label_id: str
-    bbox_count: int
-    total_labels: int
+    confidence: float
 
 
 class StoneTask(BaseModel):
@@ -46,11 +35,6 @@ class SaveStonePointsResponse(BaseModel):
     black_count: int
     white_count: int
     totals: dict[str, int]
-
-
-class BoardGridResponse(BaseModel):
-    rows: list[float]
-    cols: list[float]
 
 
 class DetectedCircle(BaseModel):
@@ -109,20 +93,50 @@ class GridResponse(BaseModel):
     sgf: str                         # SGF built from grid + window
 
 
-class PipelineStone(BaseModel):
-    col: int
-    row: int
-    color: str
-    x_px: float
-    y_px: float
-
-
-class PipelineResponse(BaseModel):
-    stones: list[PipelineStone]
-    sgf: str
+class GridDetectResponse(BaseModel):
+    crop_width: int
+    crop_height: int
+    pitch_x_px: float | None
+    pitch_y_px: float | None
+    origin_x_px: float | None
+    origin_y_px: float | None
+    vert_xs: list[float]    # detected vertical-line x-positions (pixels)
+    horz_ys: list[float]    # detected horizontal-line y-positions (pixels)
     edges: dict[str, bool]
-    window: dict[str, int]
-    pitch: dict[str, float]
-    origin: dict[str, float]
-    visible_cols: int
-    visible_rows: int
+
+
+class BoardListItem(BaseModel):
+    page_idx: int
+    bbox_idx: int                    # position within this page's bbox list
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    confidence: float
+
+
+class BoardListResponse(BaseModel):
+    total: int
+    boards: list[BoardListItem]
+
+
+class BoardStonesLocal(BaseModel):
+    """Stone detections for a single bbox crop, in CROP-LOCAL pixel
+    coordinates (origin = top-left of the padded crop returned by
+    /api/pdf/board-crop/{page_idx}/{bbox_idx}.png)."""
+    page_idx: int
+    bbox_idx: int
+    crop_width: int
+    crop_height: int
+    stones: list[CnnStone]
+
+
+class BboxUploadResponse(BaseModel):
+    page_count: int
+
+
+class BboxDetectResponse(BaseModel):
+    page_index: int
+    page_width: int
+    page_height: int
+    boards: list[BoardBBoxOut]

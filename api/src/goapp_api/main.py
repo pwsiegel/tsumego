@@ -1,34 +1,35 @@
 import json
 import logging
+from functools import lru_cache
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from . import __version__
-from .detection import decode_image, detect_boards, detect_boards_debug
-from .inference import ModelNotLoaded, detect_boards_yolo, model_available
+from .inference import ModelNotLoaded, detect_boards_yolo
 from .schemas import (
+    BboxDetectResponse,
+    BboxUploadResponse,
     BoardBBoxOut,
     BoardCirclesResponse,
-    BoardGridResponse,
+    BoardListItem,
+    BoardListResponse,
+    BoardStonesLocal,
+    GridDetectResponse,
     ClearStoneTasksResponse,
     CnnStone,
     CnnStonesResponse,
-    DetectBoardsResponse,
     DetectedCircle,
     EdgeProbsResponse,
     GridResponse,
     HealthResponse,
     ListStoneTasksResponse,
-    PipelineResponse,
-    PipelineStone,
-    SaveBoardLabelsResponse,
     SaveStonePointsResponse,
     SgfResponse,
     SgfStone,
     StoneTask,
 )
-from .pipeline import run_pipeline
 from .grid_inference import (
     GridModelNotLoaded,
     model_available as grid_model_available,
@@ -48,14 +49,11 @@ from .stone_inference import (
 from .stone_inference import model_available as stone_model_available
 from .training import (
     _load_task_crop_array,
-    count_board_labels,
     count_stone_point_labels,
-    detect_board_grid,
     detect_stone_circles_for_task,
     get_task_crop,
     ingest_pdf_for_stone_tasks_stream,
     list_stone_tasks,
-    save_board_label,
     save_stone_points,
 )
 
@@ -69,39 +67,193 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
 
 
-@app.post("/api/pdf/detect-boards", response_model=DetectBoardsResponse)
-async def detect_boards_endpoint(file: UploadFile = File(...)) -> DetectBoardsResponse:
+# --- bbox tester -----------------------------------------------------------
+
+
+@app.post("/api/pdf/bbox-upload", response_model=BboxUploadResponse)
+async def bbox_upload_endpoint(file: UploadFile = File(...)) -> BboxUploadResponse:
+    """Upload a PDF for bbox testing. Wipes any previous PDF, renders all
+    pages to disk under BBOX_TEST_DIR, returns the page count."""
+    import io
+    import shutil
+    import cv2
+    import numpy as np
+    import pypdfium2 as pdfium
+    from .paths import BBOX_TEST_DIR
+
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    if BBOX_TEST_DIR.exists():
+        shutil.rmtree(BBOX_TEST_DIR)
+    BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
+
     try:
-        img = decode_image(content)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    # Prefer the trained YOLO detector; fall back to the OpenCV heuristic until
-    # the model file is available.
+        pdf = pdfium.PdfDocument(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid PDF: {e}") from e
+
+    for i, page in enumerate(pdf):
+        pil_img = page.render(scale=2.0).to_pil()
+        img_bgr = np.array(pil_img)[..., ::-1].copy()
+        ok, buf = cv2.imencode(".png", img_bgr)
+        if not ok:
+            continue
+        (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
+
+    return BboxUploadResponse(page_count=len(pdf))
+
+
+@app.get("/api/pdf/bbox-page/{page_idx}.png")
+def bbox_page_endpoint(page_idx: int) -> Response:
+    from .paths import BBOX_TEST_DIR
+    path = BBOX_TEST_DIR / f"page_{page_idx:04d}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"page {page_idx} not found")
+    return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@app.get("/api/pdf/bbox-detect/{page_idx}", response_model=BboxDetectResponse)
+def bbox_detect_endpoint(page_idx: int) -> BboxDetectResponse:
+    import cv2
+    import numpy as np
+    from .paths import BBOX_TEST_DIR
+    path = BBOX_TEST_DIR / f"page_{page_idx:04d}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"page {page_idx} not found")
+    img = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=500, detail="could not decode page image")
+    h, w = img.shape[:2]
     try:
-        boards = detect_boards_yolo(img) if model_available() else detect_boards(img)
-    except ModelNotLoaded:
-        boards = detect_boards(img)
-    return DetectBoardsResponse(
+        boards = detect_boards_yolo(img)
+    except ModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return BboxDetectResponse(
+        page_index=page_idx,
+        page_width=w, page_height=h,
         boards=[
             BoardBBoxOut(
                 x0=b.x0, y0=b.y0, x1=b.x1, y1=b.y1,
-                h_lines=b.h_lines, v_lines=b.v_lines,
-            )
-            for b in boards
-        ]
+                confidence=b.confidence,
+            ) for b in boards
+        ],
     )
 
 
-@app.post("/api/pdf/detect-boards-debug")
-async def detect_boards_debug_endpoint(file: UploadFile = File(...)) -> Response:
-    content = await file.read()
+# ---------------------------------------------------------------------------
+# Per-bbox views of the uploaded PDF. Flat list across all pages, so the
+# UI can show one board per screen.
+# ---------------------------------------------------------------------------
+
+
+BOARD_CROP_PAD = 10   # pixels of safety context around each YOLO bbox
+
+
+def _page_bboxes(page_idx: int):
+    """Load the page, run YOLO, return (img, bboxes). Results are cached
+    per (path, mtime) so flipping between boards doesn't re-run inference."""
+    from .paths import BBOX_TEST_DIR
+    import cv2
+    import numpy as np
+    path = BBOX_TEST_DIR / f"page_{page_idx:04d}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"page {page_idx} not found")
+    img = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=500, detail="could not decode page image")
     try:
-        img = decode_image(content)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    png = detect_boards_debug(img)
-    return Response(content=png, media_type="image/png")
+        bboxes = _page_bboxes_cached(str(path), path.stat().st_mtime_ns)
+    except ModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return img, bboxes
+
+
+@lru_cache(maxsize=256)
+def _page_bboxes_cached(path_str: str, _mtime_ns: int):
+    import cv2
+    import numpy as np
+    arr = np.frombuffer(Path(path_str).read_bytes(), dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    return detect_boards_yolo(img)
+
+
+def _board_crop(page_idx: int, bbox_idx: int):
+    """Return (crop_bgr, (x0, y0, x1, y1)_in_page) for one detected board.
+    The crop is padded by BOARD_CROP_PAD px on each side so grid_detect has
+    room to find outer lines that YOLO may have clipped."""
+    img, bboxes = _page_bboxes(page_idx)
+    if bbox_idx < 0 or bbox_idx >= len(bboxes):
+        raise HTTPException(
+            status_code=404,
+            detail=f"bbox {bbox_idx} not found on page {page_idx}",
+        )
+    b = bboxes[bbox_idx]
+    h, w = img.shape[:2]
+    P = BOARD_CROP_PAD
+    x0 = max(0, b.x0 - P); y0 = max(0, b.y0 - P)
+    x1 = min(w, b.x1 + P); y1 = min(h, b.y1 + P)
+    return img[y0:y1, x0:x1], (x0, y0, x1, y1), b
+
+
+@app.get("/api/pdf/boards", response_model=BoardListResponse)
+def boards_list_endpoint() -> BoardListResponse:
+    """Flat list of every detected board across every page in the currently
+    uploaded PDF, in (page, bbox-within-page) order. Drives the UI's
+    one-bbox-per-screen navigation."""
+    from .paths import BBOX_TEST_DIR
+    if not BBOX_TEST_DIR.exists():
+        return BoardListResponse(total=0, boards=[])
+    pages = sorted(BBOX_TEST_DIR.glob("page_*.png"))
+    out: list[BoardListItem] = []
+    for page_path in pages:
+        try:
+            page_idx = int(page_path.stem.split("_")[1])
+        except (IndexError, ValueError):
+            continue
+        _, bboxes = _page_bboxes(page_idx)
+        for i, b in enumerate(bboxes):
+            out.append(BoardListItem(
+                page_idx=page_idx, bbox_idx=i,
+                x0=b.x0, y0=b.y0, x1=b.x1, y1=b.y1,
+                confidence=b.confidence,
+            ))
+    return BoardListResponse(total=len(out), boards=out)
+
+
+@app.get("/api/pdf/board-crop/{page_idx}/{bbox_idx}.png")
+def board_crop_endpoint(page_idx: int, bbox_idx: int) -> Response:
+    import cv2
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    ok, buf = cv2.imencode(".png", crop)
+    if not ok:
+        raise HTTPException(status_code=500, detail="encode failed")
+    return Response(content=buf.tobytes(), media_type="image/png")
+
+
+@app.get("/api/pdf/board-stones/{page_idx}/{bbox_idx}", response_model=BoardStonesLocal)
+def board_stones_endpoint(
+    page_idx: int, bbox_idx: int,
+    peak_thresh: float = 0.3,
+) -> BoardStonesLocal:
+    """Run the stone CNN on a bbox crop and return stone centers + colors
+    in crop-local pixel coordinates."""
+    from .stone_inference import StoneModelNotLoaded, detect_stones_cnn
+    from .stone_inference import model_available as stone_model_available
+    if not stone_model_available():
+        raise HTTPException(status_code=503, detail="stone detector model not trained")
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    h, w = crop.shape[:2]
+    try:
+        stones = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    except StoneModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return BoardStonesLocal(
+        page_idx=page_idx, bbox_idx=bbox_idx,
+        crop_width=w, crop_height=h,
+        stones=[CnnStone(**s) for s in stones],
+    )
 
 
 @app.get("/api/training/stone-tasks", response_model=ListStoneTasksResponse)
@@ -140,17 +292,6 @@ async def ingest_pdf_for_stones_endpoint(file: UploadFile = File(...)) -> Respon
             yield json.dumps({"error": str(e)}) + "\n"
 
     return StreamingResponse(iter_events(), media_type="application/x-ndjson")
-
-
-@app.get("/api/training/board-grid/{board_id}/{bbox_idx}", response_model=BoardGridResponse)
-def board_grid_endpoint(board_id: str, bbox_idx: int) -> BoardGridResponse:
-    try:
-        grid = detect_board_grid(board_id, bbox_idx)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except (IndexError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return BoardGridResponse(rows=grid["rows"], cols=grid["cols"])
 
 
 @app.get("/api/training/task-circles/{task_id}", response_model=BoardCirclesResponse)
@@ -211,29 +352,31 @@ def task_edges_endpoint(task_id: str) -> EdgeProbsResponse:
     return EdgeProbsResponse(**probs)
 
 
-@app.get("/api/training/task-pipeline/{task_id}", response_model=PipelineResponse)
-def task_pipeline_endpoint(task_id: str, peak_thresh: float = 0.3) -> PipelineResponse:
-    """End-to-end pipeline: edges (classifier) + snap (regressor) + stones
-    (CNN) → SGF."""
+@app.get("/api/training/task-grid-detect/{task_id}", response_model=GridDetectResponse)
+def task_grid_detect_endpoint(task_id: str) -> GridDetectResponse:
+    """Classical Hough-based grid detector: returns pitch/origin in the
+    original crop's pixel space plus the raw detected line positions for
+    overlay."""
+    from .edge_inference import detect_edges
+    from .grid_detect import detect_grid
     try:
         crop = _load_task_crop_array(task_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except (IndexError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    h, w = crop.shape[:2]
+    result = detect_grid(crop)
     try:
-        result = run_pipeline(crop, peak_thresh=peak_thresh)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"pipeline error: {e}") from e
-    return PipelineResponse(
-        stones=[PipelineStone(**s) for s in result.stones],
-        sgf=result.sgf,
-        edges=result.edges,
-        window=result.window,
-        pitch=result.pitch,
-        origin=result.origin,
-        visible_cols=result.visible_cols,
-        visible_rows=result.visible_rows,
+        edges = detect_edges(crop)
+    except Exception:
+        edges = {"left": False, "right": False, "top": False, "bottom": False}
+    return GridDetectResponse(
+        crop_width=w, crop_height=h,
+        pitch_x_px=result.pitch_x_px, pitch_y_px=result.pitch_y_px,
+        origin_x_px=result.origin_x_px, origin_y_px=result.origin_y_px,
+        vert_xs=result.vert_xs, horz_ys=result.horz_ys,
+        edges=edges,
     )
 
 
@@ -350,32 +493,3 @@ def save_stone_points_endpoint(
     )
 
 
-@app.post("/api/training/save-board-labels", response_model=SaveBoardLabelsResponse)
-async def save_board_labels_endpoint(
-    file: UploadFile = File(...),
-    bboxes: str = Form(...),
-) -> SaveBoardLabelsResponse:
-    try:
-        parsed = json.loads(bboxes)
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"invalid bboxes JSON: {e}") from e
-    if not isinstance(parsed, list):
-        raise HTTPException(status_code=400, detail="bboxes must be a JSON list")
-    tuples: list[tuple[int, int, int, int]] = []
-    for b in parsed:
-        if not (isinstance(b, list) and len(b) == 4 and all(isinstance(n, (int, float)) for n in b)):
-            raise HTTPException(status_code=400, detail=f"bbox must be [x0,y0,x1,y1]: got {b!r}")
-        x0, y0, x1, y1 = (int(n) for n in b)
-        if x1 <= x0 or y1 <= y0:
-            raise HTTPException(status_code=400, detail=f"invalid bbox: {b}")
-        tuples.append((x0, y0, x1, y1))
-
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="empty image")
-    saved = save_board_label(image_bytes, tuples)
-    return SaveBoardLabelsResponse(
-        label_id=saved.label_id,
-        bbox_count=len(tuples),
-        total_labels=count_board_labels(),
-    )

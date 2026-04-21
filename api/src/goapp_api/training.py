@@ -11,64 +11,17 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
 import numpy as np
 
 log = logging.getLogger(__name__)
 
-from .paths import BOARDS_DEPRECATED_DIR as BOARDS_DIR
-from .paths import DATA_DIR as TRAINING_ROOT
 from .paths import STONE_POINTS_DIR, STONE_TASKS_DIR
 
 
-@dataclass(frozen=True)
-class SavedBoardLabel:
-    label_id: str
-    image_path: Path
-    json_path: Path
-    bboxes: list[tuple[int, int, int, int]]
-
-
-def save_board_label(image_bytes: bytes, bboxes: list[tuple[int, int, int, int]]) -> SavedBoardLabel:
-    BOARDS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
-    short = secrets.token_hex(3)
-    label_id = f"{stamp}_{short}"
-    img_path = BOARDS_DIR / f"{label_id}.png"
-    json_path = BOARDS_DIR / f"{label_id}.json"
-
-    img_path.write_bytes(image_bytes)
-    json_path.write_text(
-        json.dumps({"bboxes": [list(b) for b in bboxes]}, indent=2)
-    )
-    log.info("saved board label %s with %d bboxes", label_id, len(bboxes))
-    return SavedBoardLabel(
-        label_id=label_id,
-        image_path=img_path,
-        json_path=json_path,
-        bboxes=bboxes,
-    )
-
-
-def count_board_labels() -> int:
-    if not BOARDS_DIR.exists():
-        return 0
-    return sum(1 for _ in BOARDS_DIR.glob("*.json"))
-
-
-# -------- stone-point labeling ----------------------------------------------
-
-
-def _task_id(board_id: str, bbox_idx: int) -> str:
-    return f"{board_id}_b{bbox_idx}"
-
-
 def list_stone_tasks() -> list[dict]:
-    """Stone-tuning tasks — only the crops from the most recently ingested
-    PDF. The board-detector's training data (BOARDS_DIR) is not surfaced here.
-    """
+    """Stone-tuning tasks — crops from the most recently ingested PDF."""
     tasks: list[dict] = []
     if STONE_TASKS_DIR.exists():
         for png_path in sorted(STONE_TASKS_DIR.glob("*.png")):
@@ -82,35 +35,23 @@ def list_stone_tasks() -> list[dict]:
 
 
 def get_task_crop(task_id: str) -> bytes:
-    """Return PNG bytes for any task_id (boards-sourced or auto-detected)."""
-    if task_id.startswith("st_"):
-        png_path = STONE_TASKS_DIR / f"{task_id}.png"
-        if not png_path.exists():
-            raise FileNotFoundError(task_id)
-        return png_path.read_bytes()
-    import re
-    m = re.match(r"^(.+)_b(\d+)$", task_id)
-    if not m:
-        raise ValueError(f"invalid task_id: {task_id}")
-    return get_board_crop(m.group(1), int(m.group(2)))
+    """Return PNG bytes for a task crop."""
+    png_path = STONE_TASKS_DIR / f"{task_id}.png"
+    if not png_path.exists():
+        raise FileNotFoundError(task_id)
+    return png_path.read_bytes()
 
 
 def _load_task_crop_array(task_id: str) -> np.ndarray:
-    """BGR numpy array for any task_id."""
-    if task_id.startswith("st_"):
-        png_path = STONE_TASKS_DIR / f"{task_id}.png"
-        if not png_path.exists():
-            raise FileNotFoundError(task_id)
-        arr = np.frombuffer(png_path.read_bytes(), dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError(f"could not decode {png_path}")
-        return img
-    import re
-    m = re.match(r"^(.+)_b(\d+)$", task_id)
-    if not m:
-        raise ValueError(f"invalid task_id: {task_id}")
-    return _load_board_crop(m.group(1), int(m.group(2)))
+    """BGR numpy array for a task crop."""
+    png_path = STONE_TASKS_DIR / f"{task_id}.png"
+    if not png_path.exists():
+        raise FileNotFoundError(task_id)
+    arr = np.frombuffer(png_path.read_bytes(), dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError(f"could not decode {png_path}")
+    return img
 
 
 def ingest_pdf_for_stone_tasks_stream(
@@ -126,7 +67,8 @@ def ingest_pdf_for_stone_tasks_stream(
     import io
     import shutil
     import pypdfium2 as pdfium
-    from .inference import detect_boards_with_edges, model_available
+    from .edge_inference import detect_edges
+    from .inference import detect_boards_yolo, model_available
 
     if not model_available():
         raise RuntimeError(
@@ -146,16 +88,21 @@ def ingest_pdf_for_stone_tasks_stream(
         pil_img = page.render(scale=2.0).to_pil()
         img_bgr = np.array(pil_img)[..., ::-1].copy()
         try:
-            detections = detect_boards_with_edges(img_bgr)
+            detections = detect_boards_yolo(img_bgr)
         except Exception as e:
             log.warning("detection failed on page %d: %s", page_num + 1, e)
             detections = []
-        for b, edges in detections:
+        for b in detections:
             x0 = max(0, b.x0); y0 = max(0, b.y0)
             x1 = min(img_bgr.shape[1], b.x1); y1 = min(img_bgr.shape[0], b.y1)
             if x1 <= x0 or y1 <= y0:
                 continue
             crop = img_bgr[y0:y1, x0:x1]
+            try:
+                edges = detect_edges(crop)
+            except Exception as e:
+                log.warning("edge classifier failed on page %d: %s", page_num + 1, e)
+                edges = {"left": False, "right": False, "top": False, "bottom": False}
             stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
             short = secrets.token_hex(4)
             task_id = f"st_{stamp}_{short}"
@@ -166,7 +113,7 @@ def ingest_pdf_for_stone_tasks_stream(
             (STONE_TASKS_DIR / f"{task_id}.json").write_text(json.dumps({
                 "source": source_name, "page": page_num + 1,
                 "bbox_in_page": [int(x0), int(y0), int(x1), int(y1)],
-                "confidence": b.h_lines / 1000.0,
+                "confidence": b.confidence,
                 "edges": edges,
             }))
             count += 1
@@ -177,41 +124,12 @@ def ingest_pdf_for_stone_tasks_stream(
 
 
 def ingest_pdf_for_stone_tasks(pdf_bytes: bytes, source_name: str = "pdf") -> int:
-    """Non-streaming wrapper — kept for compatibility with the old endpoint
-    signature. Drains the generator and returns the final count."""
+    """Non-streaming wrapper — drains the generator and returns final count."""
     last_count = 0
     for event in ingest_pdf_for_stone_tasks_stream(pdf_bytes, source_name):
         if "total_tasks" in event:
             last_count = event["total_tasks"]
     return last_count
-
-
-def _load_board_crop(board_id: str, bbox_idx: int) -> np.ndarray:
-    """Return the cropped board as a BGR numpy array."""
-    json_path = BOARDS_DIR / f"{board_id}.json"
-    img_path = BOARDS_DIR / f"{board_id}.png"
-    if not json_path.exists() or not img_path.exists():
-        raise FileNotFoundError(board_id)
-    data = json.loads(json_path.read_text())
-    bboxes = data.get("bboxes", [])
-    if bbox_idx < 0 or bbox_idx >= len(bboxes):
-        raise IndexError(f"bbox_idx {bbox_idx} out of range for {board_id}")
-    x0, y0, x1, y1 = (int(v) for v in bboxes[bbox_idx])
-
-    arr = np.frombuffer(img_path.read_bytes(), dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError(f"could not decode {img_path}")
-    return img[max(0, y0):y1, max(0, x0):x1]
-
-
-def get_board_crop(board_id: str, bbox_idx: int) -> bytes:
-    """Return PNG bytes for the bbox-th crop of the given board label."""
-    crop = _load_board_crop(board_id, bbox_idx)
-    ok, buf = cv2.imencode(".png", crop)
-    if not ok:
-        raise RuntimeError("encoding crop failed")
-    return buf.tobytes()
 
 
 def detect_stone_circles_for_task(
@@ -221,58 +139,11 @@ def detect_stone_circles_for_task(
     hough_param2: int = 40,
     white_ring_thresh: float = 0.1,
 ) -> list[dict]:
-    """Same as detect_stone_circles but dispatched on task_id."""
     crop = _load_task_crop_array(task_id)
     return _detect_stone_circles_on_crop(
         crop, min_r_frac=min_r_frac, max_r_frac=max_r_frac,
         hough_param2=hough_param2, white_ring_thresh=white_ring_thresh,
     )
-
-
-def detect_board_grid(board_id: str, bbox_idx: int) -> dict:
-    """Detect grid intersection positions within a board crop.
-
-    Returns {'rows': [y0, y1, ...], 'cols': [x0, x1, ...]} where each list is
-    the (sub-pixel) center of one grid line in crop-local coordinates. The
-    front-end snaps clicks to the nearest (col, row) intersection.
-
-    Strategy: adaptive threshold → morphological opening with long horizontal
-    (resp. vertical) structuring element → row-sum (col-sum) of the mask →
-    peak-find to locate individual line centers.
-    """
-    crop = _load_board_crop(board_id, bbox_idx)
-    if crop.ndim == 3:
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = crop
-    h, w = gray.shape
-
-    binary = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        15, 10,
-    )
-    # Short kernel so partial-board grid lines (broken by stones) still survive.
-    hk = max(8, w // 12)
-    vk = max(8, h // 12)
-    h_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN,
-                              cv2.getStructuringElement(cv2.MORPH_RECT, (hk, 1)))
-    v_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN,
-                              cv2.getStructuringElement(cv2.MORPH_RECT, (1, vk)))
-
-    row_sums = np.count_nonzero(h_mask, axis=1).astype(np.float32)
-    col_sums = np.count_nonzero(v_mask, axis=0).astype(np.float32)
-
-    # Lower threshold to catch weaker (partially-stone-obscured) grid lines.
-    rows = _peak_centers(row_sums, min_gap=max(3, h // 60), rel_thresh=0.2)
-    cols = _peak_centers(col_sums, min_gap=max(3, w // 60), rel_thresh=0.2)
-    return {"rows": rows, "cols": cols}
-
-
-def detect_stone_circles(board_id: str, bbox_idx: int) -> list[dict]:
-    """Dispatch on (board_id, bbox_idx) — kept for backward compat."""
-    return _detect_stone_circles_on_crop(_load_board_crop(board_id, bbox_idx))
 
 
 def _detect_stone_circles_on_crop(
@@ -303,8 +174,6 @@ def _detect_stone_circles_on_crop(
             interpolation=cv2.INTER_CUBIC,
         )
 
-    # Pad with paper-white so stones clipped by the crop boundary still have
-    # room for HoughCircles to complete their circular gradient vote.
     work_h, work_w = crop.shape[:2]
     pad = max(20, int(min(work_w, work_h) * 0.05))
     crop = cv2.copyMakeBorder(
@@ -318,11 +187,6 @@ def _detect_stone_circles_on_crop(
 
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
 
-    # Strip long horizontal/vertical lines (grid + frame). Thresholds are
-    # per-axis so that wide/short partial-board crops still work: horizontal
-    # grid lines span most of the width, vertical lines span most of the
-    # height. The kernel length must be longer than any stone's diameter so
-    # stones aren't mistaken for lines.
     h_k = max(20, int(w * 0.4))
     v_k = max(20, int(h * 0.4))
     h_lines = cv2.morphologyEx(
@@ -348,10 +212,6 @@ def _detect_stone_circles_on_crop(
         cv2.bitwise_not(binary), cv2.MORPH_OPEN,
         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (open_k, open_k)),
     )
-    # Fill small dark features inside light regions (triangles, numbered-move
-    # glyphs). Without this, a white stone with a triangle inside has its
-    # light interior carved into a non-circular shape that the circularity
-    # filter rejects.
     glyph_close_k = max(15, int(min_dim * 0.02))
     if glyph_close_k % 2 == 0:
         glyph_close_k += 1
@@ -398,9 +258,6 @@ def _detect_stone_circles_on_crop(
 
     cc_cands = _roundish(dark, is_interior=False) + _roundish(light, is_interior=True)
 
-    # HoughCircles handles tightly-clustered stones (connected-component
-    # detection can't separate touching blobs). Use a radius range based on
-    # our cc candidates when available, else fall back to a size guess.
     if cc_cands:
         rs = sorted(c["r"] for c in cc_cands)
         med_r = rs[len(rs) // 2]
@@ -418,10 +275,6 @@ def _detect_stone_circles_on_crop(
         minRadius=min_r_h, maxRadius=max_r_h,
     )
 
-    # Second pass: fill small light holes (triangle glyphs) AND white-stone
-    # interiors so these become solid dark disks, matching HoughCircles'
-    # gradient-direction assumption. Close-kernel ≈ stone interior diameter.
-    # This catches isolated white stones that regular Hough misses.
     fill_k = max(15, min_r_h * 2 - 5)
     if fill_k % 2 == 0:
         fill_k += 1
@@ -429,7 +282,6 @@ def _detect_stone_circles_on_crop(
         binary, cv2.MORPH_CLOSE,
         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (fill_k, fill_k)),
     )
-    # Convert to grayscale where dark content is 0 and background is 255.
     filled_gray = cv2.bitwise_not(binary_filled)
     filled_blurred = cv2.GaussianBlur(filled_gray, (5, 5), 1.5)
     hough_filled = cv2.HoughCircles(
@@ -439,7 +291,6 @@ def _detect_stone_circles_on_crop(
         minRadius=min_r_h, maxRadius=max_r_h,
     )
 
-    # Concatenate both passes' detections for verification.
     hough_all = []
     if hough_raw is not None:
         hough_all.extend(hough_raw[0].tolist())
@@ -449,10 +300,6 @@ def _detect_stone_circles_on_crop(
     hough_cands: list[dict] = []
     if hough is not None:
         n_samples = 32
-        # For each angle around the circle, sample pixels along a wide
-        # radial range (Hough's detected radius is often 15%+ off from the
-        # actual outline). Any dark pixel along that radial line counts the
-        # angle as "dark".
         radial_frac = np.linspace(0.65, 1.25, 13)
         for c in hough[0]:
             cx, cy, r = float(c[0]), float(c[1]), float(c[2])
@@ -472,7 +319,6 @@ def _detect_stone_circles_on_crop(
             if outline_frac >= white_ring_thresh:
                 hough_cands.append({"x": cx, "y": cy, "r": r, "area": float(np.pi * r * r)})
 
-    # Merge cc_cands + hough_cands; dedupe circles with overlapping centers.
     merged: list[dict] = []
     for c in cc_cands + hough_cands:
         dup = False
@@ -488,13 +334,8 @@ def _detect_stone_circles_on_crop(
     areas = np.array([c["area"] for c in merged])
     med = float(np.median(areas))
     stones = [c for c in merged if med * 0.25 <= c["area"] <= med * 4.0]
-    # Remove padding offset, scale back to original crop pixel space. Drop
-    # any detection whose center landed in the pad margin. Classify each
-    # circle as B or W by the median luminance of its inner half (robust to
-    # glyphs like triangles or move numbers drawn inside the stone).
     out: list[dict] = []
     for s in stones:
-        # Color classification in padded coordinates (gray has the pad too).
         r_inner = max(2, int(s["r"] * 0.5))
         cy_p, cx_p = int(s["y"]), int(s["x"])
         y_lo = max(0, cy_p - r_inner); y_hi = min(h, cy_p + r_inner + 1)
@@ -515,39 +356,6 @@ def _detect_stone_circles_on_crop(
     return out
 
 
-def _peak_centers(signal: np.ndarray, min_gap: int, rel_thresh: float = 0.4) -> list[float]:
-    """Find contiguous runs of above-threshold samples; return the center
-    index of each run. Threshold = rel_thresh × the signal's max value."""
-    if signal.size == 0:
-        return []
-    max_val = float(signal.max())
-    if max_val <= 0:
-        return []
-    thresh = max_val * rel_thresh
-    peaks: list[float] = []
-    start: int | None = None
-    for i, v in enumerate(signal):
-        if v >= thresh:
-            if start is None:
-                start = i
-        elif start is not None:
-            end = i - 1
-            peaks.append((start + end) / 2.0)
-            start = None
-    if start is not None:
-        peaks.append((start + len(signal) - 1) / 2.0)
-    # Merge peaks that are too close (probably double detection of same line).
-    if min_gap > 1 and len(peaks) > 1:
-        merged = [peaks[0]]
-        for p in peaks[1:]:
-            if p - merged[-1] < min_gap:
-                merged[-1] = (merged[-1] + p) / 2.0
-            else:
-                merged.append(p)
-        peaks = merged
-    return [float(p) for p in peaks]
-
-
 @dataclass(frozen=True)
 class SavedStonePoints:
     task_id: str
@@ -560,8 +368,8 @@ def save_stone_points(
     black_points: list[tuple[float, float]],
     white_points: list[tuple[float, float]],
 ) -> SavedStonePoints:
-    """Save stone-center points for a task crop (any source). Coordinates are
-    in the crop's pixel space (origin at crop top-left)."""
+    """Save stone-center points for a task crop. Coordinates are in the
+    crop's pixel space (origin at crop top-left)."""
     STONE_POINTS_DIR.mkdir(parents=True, exist_ok=True)
     png_bytes = get_task_crop(task_id)
     (STONE_POINTS_DIR / f"{task_id}.png").write_bytes(png_bytes)

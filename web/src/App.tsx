@@ -1,14 +1,13 @@
 import { useState } from 'react';
+import { BboxTest } from './BboxTest';
 import { Board } from './Board';
-import { CompareDetectors } from './CompareDetectors';
-import { PdfImport } from './PdfImport';
-import { StoneLabeler } from './StoneLabeler';
+import { StoneTest } from './StoneTest';
 import type { Color, Stone } from './types';
 import { other } from './types';
 import './App.css';
 
 type Mode = 'setup' | 'play';
-type View = 'board' | 'import' | 'stones' | 'compare';
+type View = 'board' | 'bboxTest' | 'stoneTest';
 
 function App() {
   const [stones, setStones] = useState<Stone[]>([]);
@@ -143,16 +142,13 @@ function App() {
         </section>
 
         <section>
-          <h2>Import</h2>
+          <h2>Tools</h2>
           <div className="button-row">
-            <button onClick={() => setView('import')}>
-              Import from PDF…
+            <button onClick={() => setView('bboxTest')}>
+              Test bounding boxes…
             </button>
-            <button onClick={() => setView('stones')}>
-              Label stones…
-            </button>
-            <button onClick={() => setView('compare')}>
-              Compare detectors…
+            <button onClick={() => setView('stoneTest')}>
+              Test stone detection…
             </button>
           </div>
         </section>
@@ -162,24 +158,11 @@ function App() {
         {view === 'board' && (
           <Board stones={stones} onPlay={handlePlay} />
         )}
-        {view === 'import' && (
-          <PdfImport
-            onImport={(imported) => {
-              setStones((prev) => [
-                ...prev.filter((s) => s.number !== undefined),
-                ...imported,
-              ]);
-              setMode('play');
-              setView('board');
-            }}
-            onCancel={() => setView('board')}
-          />
+        {view === 'bboxTest' && (
+          <BboxTest onExit={() => setView('board')} />
         )}
-        {view === 'stones' && (
-          <StoneLabeler onExit={() => setView('board')} />
-        )}
-        {view === 'compare' && (
-          <CompareDetectors onExit={() => setView('board')} />
+        {view === 'stoneTest' && (
+          <StoneTest onExit={() => setView('board')} />
         )}
       </main>
     </div>
