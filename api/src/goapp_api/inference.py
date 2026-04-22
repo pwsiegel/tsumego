@@ -72,8 +72,19 @@ def detect_boards_yolo(image_bgr: np.ndarray) -> list[BoardBBox]:
             x0=int(x0), y0=int(y0), x1=int(x1), y1=int(y1),
             confidence=float(conf),
         ))
-    # Largest, highest-confidence first.
-    out.sort(key=lambda b: -((b.x1 - b.x0) * (b.y1 - b.y0) * b.confidence))
+    # Reading order: top-to-bottom within each column, columns left-to-right.
+    # Problems in Go books are typically laid out as a grid; a board's
+    # "column" is determined by bucketing its x-center against the typical
+    # board width so minor horizontal jitter doesn't split a column.
+    if out:
+        widths = sorted(b.x1 - b.x0 for b in out)
+        median_w = max(1, widths[len(widths) // 2])
+        bucket = max(1, median_w)
+        def reading_key(b: BoardBBox) -> tuple[int, int]:
+            cx = (b.x0 + b.x1) // 2
+            cy = (b.y0 + b.y1) // 2
+            return (cx // bucket, cy)
+        out.sort(key=reading_key)
     log.info("detect_boards_yolo: %d boards", len(out))
     return out
 

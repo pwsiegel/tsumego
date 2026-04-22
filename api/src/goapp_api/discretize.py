@@ -101,19 +101,30 @@ def discretize(
 
     col_min, row_min = _place_window(edges, visible_cols, visible_rows)
 
-    snapped: list[DiscretizedStone] = []
+    # Snap each detection; then dedupe by (col, row) keeping the
+    # highest-confidence stone. Two detections with different colors
+    # can land on the same intersection (e.g. a dark-rim-around-a-light-
+    # interior ambiguous pattern triggers a B and W detection very close
+    # in pixel space that both snap to the same cell). Downstream rendering
+    # and SGF emission rely on cell positions being unique.
+    by_cell: dict[tuple[int, int], DiscretizedStone] = {}
     for s, x, y in zip(usable, xs, ys):
         c_local = int(round((float(x) - origin_x) / pitch_x))
         r_local = int(round((float(y) - origin_y) / pitch_y))
         c_local = max(0, min(visible_cols - 1, c_local))
         r_local = max(0, min(visible_rows - 1, r_local))
-        snapped.append(DiscretizedStone(
+        entry = DiscretizedStone(
             x=float(x), y=float(y),
             color=str(s["color"]),
             conf=float(s.get("conf", 1.0)),
             col_local=c_local, row_local=r_local,
             col=col_min + c_local, row=row_min + r_local,
-        ))
+        )
+        key = (entry.col, entry.row)
+        prev = by_cell.get(key)
+        if prev is None or entry.conf > prev.conf:
+            by_cell[key] = entry
+    snapped = list(by_cell.values())
 
     return Discretized(
         cell_size=float(cell_size),
