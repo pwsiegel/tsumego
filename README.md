@@ -59,6 +59,8 @@ Tracks ideas as they come up. Ordering within a section is rough priority.
 - [ ] Export labeled patches as training data (JSON + image tiles).
 - [ ] Tiny CNN patch classifier trained in PyTorch, exported to ONNX, loaded via onnxruntime-web.
 - [ ] Batch-ingest an entire PDF in one call (backend endpoint returning all detected problems).
+- [ ] **Problem-label detection (OCR)** — crop a region around each detected board and OCR out the original book's label ("problem 7", "問題 3", "第 12 題", etc.) so imported problems keep their original numbering instead of sequential indices. Multilingual Tesseract is the obvious starting point, but accuracy craters on low-DPI photocopy scans — needs a fallback and probably per-book heuristics for where the label sits relative to the board.
+- [ ] **Stone-annotation detection** — books frequently print a number, triangle/square/circle mark, or a letter/kanji inside a stone to identify "move 7" / "the marked stone" / "stone A". Detecting these would let us (a) transcribe the book's annotations accurately into the SGF (`LB[]`, `TR[]`, numbered move sequences) rather than collapsing everything to a setup position, and (b) disambiguate stones from nearby printed characters — observed on hm2 where a Korean character near the board was misread as a white stone by the detector. Plausible approach: after stone detection, crop each stone's interior and run a small CNN or OCR pass for marks/digits/characters; also use the presence of detected characters outside stones as a negative signal to suppress near-board text false positives.
 
 ### Solving & analysis
 

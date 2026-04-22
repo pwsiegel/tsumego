@@ -1,21 +1,22 @@
-"""Fine-tune YOLOv8-nano on synthetic per-board crops, stones only.
+"""Fine-tune YOLOv8-nano on per-board corner annotations.
 
-Two classes:
+Four classes, one per corner of the visible board frame:
 
-    0: B    black stone
-    1: W    white stone
+    0: TL   top-left
+    1: TR   top-right
+    2: BL   bottom-left
+    3: BR   bottom-right
 
-Training extracts a per-board crop from each synth page — that matches
-what the detector sees at inference (a board crop produced by the bbox
-detector), rather than the whole page.
+A corner is labeled only when both adjacent sides of the board frame
+are real edges. Partial-board crops (e.g. a top-side crop) will have
+TL + TR but no BL/BR; a cut corner has no corners at all.
 
-Hoshi points are rendered into each synth board (as part of normal
-board appearance) but NOT labeled as stones. YOLO learns to treat
-those small dark dots as background.
+Training happens on per-board *crops* extracted from synth pages. This
+matches what the detector sees at inference (crops produced by the
+bbox detector), so training and inference distributions agree.
 
 Usage:
-    uv --directory api run --extra ml python -m goapp_api.train_stones_yolo \\
-        --device mps     # use Apple M-series GPU if available
+    uv --directory api run --extra ml python -m goapp_api.train_corners_yolo
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import numpy as np
 
 
 from .paths import (
+    CORNER_DETECTOR_PATH as STAGED_OUT,
     DATA_DIR,
     MODELS_DIR,
     MODELS_RUNS_DIR,
@@ -39,14 +41,14 @@ from .paths import (
 
 SEED = 42
 VAL_FRAC = 0.2
-DEFAULT_EPOCHS = 30
+DEFAULT_EPOCHS = 20
 IMG_SIZE = 640
-STONE_HALF_FRAC = 0.4
+CORNER_HALF_FRAC = 0.35
 
-YOLO_DIR = DATA_DIR / "yolo_stones"
-STAGED_OUT = MODELS_DIR / "stone_detector_yolo.pt"
+YOLO_DIR = DATA_DIR / "yolo_corners"
 
-CLASS_NAMES = ["B", "W"]
+CLASS_NAMES = ["TL", "TR", "BL", "BR"]
+CORNER_CLASS = {"tl": 0, "tr": 1, "bl": 2, "br": 3}
 
 
 def _pitch_from_board(board: dict) -> tuple[float, float]:
@@ -70,13 +72,15 @@ def _emit_box(
 
 
 def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
-    """Extract per-board crops and emit a YOLO dataset of stone bboxes."""
+    """Extract per-board crops from synth pages and write a YOLO dataset."""
     page_jsons = sorted(pages_dir.glob("*.json"))
     if limit:
         page_jsons = page_jsons[:limit]
     if not page_jsons:
         raise RuntimeError(f"no page JSONs in {pages_dir}")
 
+    # Gather all (page_json, board) pairs first, then split train/val by board
+    # so every board from a given page can land on the same side.
     pairs: list[tuple[Path, int]] = []
     for jp in page_jsons:
         data = json.loads(jp.read_text())
@@ -95,6 +99,7 @@ def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
     for sub in ("images/train", "images/val", "labels/train", "labels/val"):
         (YOLO_DIR / sub).mkdir(parents=True)
 
+    # Cache decoded page images since many boards live on each page.
     _page_cache: dict[Path, np.ndarray] = {}
 
     def decode(png_path: Path) -> np.ndarray | None:
@@ -112,6 +117,8 @@ def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
         if page is None:
             return
         Hp, Wp = page.shape[:2]
+        # Use the padded bbox so the crop looks like a real bbox-detector
+        # output (tight bbox + a few px of context on each side).
         bx0, by0, bx1, by1 = board.get("bbox_padded", board["bbox"])
         bx0 = max(0, int(bx0)); by0 = max(0, int(by0))
         bx1 = min(Wp, int(bx1) + 1); by1 = min(Hp, int(by1) + 1)
@@ -121,15 +128,20 @@ def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
         Ch, Cw = crop.shape[:2]
 
         px, py = _pitch_from_board(board)
-        half = max(px, py) * STONE_HALF_FRAC
+        half = max(px, py) * CORNER_HALF_FRAC
 
         lines: list[str] = []
-        for sx, sy, color in board.get("stones", []):
-            cx = sx - bx0
-            cy = sy - by0
+        for cname, cls in CORNER_CLASS.items():
+            pos = board.get("corners", {}).get(cname)
+            if pos is None:
+                continue
+            cx = pos[0] - bx0
+            cy = pos[1] - by0
+            # Skip corners that fall outside the crop (shouldn't happen for
+            # a correctly-labeled bbox, but rotations can push things a
+            # pixel or two past the bbox edge).
             if not (0 <= cx < Cw and 0 <= cy < Ch):
                 continue
-            cls = 0 if color == "B" else 1
             _emit_box(lines, cls, float(cx), float(cy), half, Cw, Ch)
 
         stem = f"{jp.stem}_b{board_idx}"
@@ -166,16 +178,17 @@ def train(data_yaml: Path, epochs: int, model_out: Path, base_model: str,
         epochs=epochs,
         imgsz=IMG_SIZE,
         project=str(MODELS_RUNS_DIR),
-        name="stone_detector",
+        name="corner_detector",
         exist_ok=True,
         patience=4,
+        # Corners are asymmetric (TL is not a flipped TR), so no fliplr.
         degrees=3.0,
         translate=0.05,
         scale=0.3,
         shear=0.0,
         perspective=0.0,
         flipud=0.0,
-        fliplr=0.5,  # stones are symmetric, horizontal flip doubles data cheaply
+        fliplr=0.0,
         hsv_h=0.0,
         hsv_s=0.2,
         hsv_v=0.3,
