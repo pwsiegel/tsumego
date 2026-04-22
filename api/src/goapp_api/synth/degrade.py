@@ -110,6 +110,19 @@ def _rotate(
             )
             for (sx, sy, color) in b.stone_centers
         ]
+        new_hoshi = [
+            (int(round(rotate_point(hx, hy)[0])),
+             int(round(rotate_point(hx, hy)[1])))
+            for (hx, hy) in b.hoshi_centers
+        ]
+        new_corners = {
+            k: (
+                (int(round(rotate_point(v[0], v[1])[0])),
+                 int(round(rotate_point(v[0], v[1])[1])))
+                if v is not None else None
+            )
+            for k, v in b.corner_centers.items()
+        }
         new_boards.append(BoardAnnotation(
             bbox=tight,
             bbox_padded=padded,
@@ -118,5 +131,7 @@ def _rotate(
             edges_on_board=b.edges_on_board,
             edge_class=b.edge_class,
             stone_centers=new_stones,
+            hoshi_centers=new_hoshi,
+            corner_centers=new_corners,
         ))
     return rotated, new_boards

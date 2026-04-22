@@ -50,6 +50,8 @@ class BoardAnnotation:
     edge_class: int                       # 4-bit encoding of the above,
                                           # (L<<3|R<<2|T<<1|B), range 0..15.
     stone_centers: list[tuple[int, int, str]]  # (x_px_in_page, y_px_in_page, color)
+    hoshi_centers: list[tuple[int, int]]  # (x_px_in_page, y_px_in_page) — visible hoshi
+    corner_centers: dict[str, tuple[int, int] | None]  # "tl"/"tr"/"bl"/"br" → pixel or None
 
 
 @dataclass
@@ -71,6 +73,11 @@ class Page:
                     "edges_on_board": b.edges_on_board,
                     "edge_class": b.edge_class,
                     "stones": [[x, y, c] for (x, y, c) in b.stone_centers],
+                    "hoshi": [[x, y] for (x, y) in b.hoshi_centers],
+                    "corners": {
+                        k: (list(v) if v is not None else None)
+                        for k, v in b.corner_centers.items()
+                    },
                 }
                 for b in self.boards
             ],
@@ -132,8 +139,12 @@ def _pick_window(rng: random.Random) -> tuple[int, int, int, int]:
 
 
 def _random_style(rng: random.Random) -> BoardStyle:
-    # Slight variation so detectors don't memorize a single visual fingerprint.
-    pitch = rng.randint(22, 32)
+    # Wide pitch range (14–70 px) so the stone detector sees stones at many
+    # pixel scales across the dataset. _fit_board_in_cell() narrows this
+    # further per layout, but the starting distribution must span the range
+    # we expect from real book PDFs (tight cho-chikun ~15 px through full-
+    # page hm2 ~100 px, downsampled at training imgsz=640).
+    pitch = rng.randint(14, 70)
     return BoardStyle(
         pitch=pitch,
         margin=rng.randint(10, 18),
@@ -148,6 +159,12 @@ def _random_style(rng: random.Random) -> BoardStyle:
         white_outline=2,
         hoshi_radius=max(2, pitch // 12),
         stone_radius_frac=rng.uniform(0.44, 0.48),
+        # Vary mark size: shape marks can be small dots (0.3·r) through
+        # almost-filling badges (0.6·r). Numbers can be modest (0.85·r)
+        # through bold nearly-filling (1.35·r). Real books span this
+        # range; fixed sizes gave the detector a narrow visual template.
+        mark_frac=rng.uniform(0.30, 0.60),
+        number_frac=rng.uniform(0.85, 1.35),
     )
 
 
@@ -217,6 +234,8 @@ def _fit_board_in_cell(
         white_outline=style.white_outline,
         hoshi_radius=style.hoshi_radius,
         stone_radius_frac=style.stone_radius_frac,
+        mark_frac=style.mark_frac,
+        number_frac=style.number_frac,
     )
 
 
@@ -672,7 +691,12 @@ def _render_problems(
             stones = random_stones(
                 window,
                 density=rng.uniform(0.15, 0.35),
-                mark_prob=rng.uniform(0.1, 0.3),
+                # Most pages have few marks; ~15% are "move sequence"
+                # diagrams where almost every stone is numbered/marked.
+                mark_prob=(
+                    rng.uniform(0.6, 0.95) if rng.random() < 0.15
+                    else rng.uniform(0.05, 0.3)
+                ),
                 rng=rng,
             )
             style = _fit_board_in_cell(cell_w, cell_h, window, _random_style(rng))
@@ -746,6 +770,13 @@ def _render_problems(
                 (board_x + sx, board_y + sy, color)
                 for (sx, sy, _, color) in rb.stones
             ]
+            hoshi_centers = [
+                (board_x + hx, board_y + hy) for (hx, hy) in rb.hoshi_pixels
+            ]
+            corner_centers = {
+                k: (board_x + v[0], board_y + v[1]) if v is not None else None
+                for k, v in rb.corner_pixels.items()
+            }
             boards.append(BoardAnnotation(
                 bbox=tight_bbox,
                 bbox_padded=padded_bbox,
@@ -754,6 +785,8 @@ def _render_problems(
                 edges_on_board=rb.edges_on_board,
                 edge_class=edge_class,
                 stone_centers=stone_centers,
+                hoshi_centers=hoshi_centers,
+                corner_centers=corner_centers,
             ))
 
             # Question / answer text under the board.

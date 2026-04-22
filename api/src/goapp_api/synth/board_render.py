@@ -43,7 +43,8 @@ class BoardStyle:
     white_outline: int = 2
     hoshi_radius: int = 3
     stone_radius_frac: float = 0.46    # fraction of pitch
-    mark_frac: float = 0.45            # mark size vs stone radius
+    mark_frac: float = 0.45            # shape mark size vs stone radius
+    number_frac: float = 1.1           # digit font size vs stone radius
 
 
 @dataclass
@@ -52,6 +53,10 @@ class BoardRender:
     stones: list[tuple[int, int, int, str]]   # (x_px, y_px, radius_px, color)
     edges_on_board: dict[str, bool]           # {left,right,top,bottom}: is a real board edge
     window: tuple[int, int, int, int]         # (col_min, col_max, row_min, row_max)
+    hoshi_pixels: list[tuple[int, int]]       # (x_px, y_px) of visible hoshi dots
+    corner_pixels: dict[str, tuple[int, int] | None]  # "tl"/"tr"/"bl"/"br" → pixel or None
+                                              # (a corner only exists when both its
+                                              # adjacent sides are real board edges)
 
 
 def render_board(
@@ -122,11 +127,30 @@ def render_board(
         thick_line(to_px(col_min, row_max), to_px(col_max, row_max))
 
     # ---- hoshi ----
+    hoshi_out: list[tuple[int, int]] = []
     for (c, r) in HOSHI:
         if col_min <= c <= col_max and row_min <= r <= row_max:
             cx, cy = to_px(c, r)
             rr = s.hoshi_radius * SCALE
             draw.ellipse([(cx - rr, cy - rr), (cx + rr, cy + rr)], fill=s.ink)
+            hoshi_out.append((cx // SCALE, cy // SCALE))
+
+    # ---- corner positions (only where both adjacent sides are real edges) ----
+    corner_out: dict[str, tuple[int, int] | None] = {
+        "tl": None, "tr": None, "bl": None, "br": None,
+    }
+    if edges_on_board["top"] and edges_on_board["left"]:
+        cx, cy = to_px(col_min, row_min)
+        corner_out["tl"] = (cx // SCALE, cy // SCALE)
+    if edges_on_board["top"] and edges_on_board["right"]:
+        cx, cy = to_px(col_max, row_min)
+        corner_out["tr"] = (cx // SCALE, cy // SCALE)
+    if edges_on_board["bottom"] and edges_on_board["left"]:
+        cx, cy = to_px(col_min, row_max)
+        corner_out["bl"] = (cx // SCALE, cy // SCALE)
+    if edges_on_board["bottom"] and edges_on_board["right"]:
+        cx, cy = to_px(col_max, row_max)
+        corner_out["br"] = (cx // SCALE, cy // SCALE)
 
     # ---- stones ----
     stone_r = int(s.pitch * s.stone_radius_frac)
@@ -152,6 +176,8 @@ def render_board(
         stones=stones_out,
         edges_on_board=edges_on_board,
         window=window,
+        hoshi_pixels=hoshi_out,
+        corner_pixels=corner_out,
     )
 
 
@@ -186,7 +212,7 @@ def _draw_mark(
             outline=mark_color, width=width,
         )
     elif mark.isdigit():
-        font_size = int(rr * 1.1)
+        font_size = int(rr * s.number_frac)
         font = _load_font(font_path, font_size)
         bbox = draw.textbbox((0, 0), mark, font=font)
         tw = bbox[2] - bbox[0]
