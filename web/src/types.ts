@@ -9,5 +9,3 @@ export type Stone = {
 };
 
 export const BOARD_SIZE = 19;
-
-export const other = (c: Color): Color => (c === 'B' ? 'W' : 'B');

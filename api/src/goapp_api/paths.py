@@ -11,6 +11,7 @@ Subdirectory layout under $GOAPP_DATA_DIR:
         yolo/                derived: YOLO dataset built from synth_pages
         yolo_stones/         derived: YOLO stone-detector dataset
         bbox_test/           per-session PDF pages for the bbox tester
+        tsumego/             accepted problems saved from the upload flow
     models/
         board_detector.pt    YOLO board bbox detector
         edge_classifier.pt   4-bit edge classifier
@@ -42,9 +43,13 @@ YOLO_DIR = DATA_DIR / "yolo"
 # --- per-session bbox-test data ---
 BBOX_TEST_DIR = DATA_DIR / "bbox_test"
 
+# --- accepted problems, saved from the upload flow ---
+TSUMEGO_DIR = DATA_DIR / "tsumego"
+
 # --- model weights ---
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 EDGE_CLASSIFIER_PATH = MODELS_DIR / "edge_classifier.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
+CORNER_DETECTOR_PATH = MODELS_DIR / "corner_detector.pt"
 
 MODELS_RUNS_DIR = MODELS_DIR / "runs"

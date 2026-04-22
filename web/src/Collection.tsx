@@ -1,0 +1,221 @@
+import { useEffect, useState } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import type { ProblemData } from './ProblemEditor';
+import './Collection.css';
+
+export function Collection() {
+  const { source: encSource = '' } = useParams();
+  const source = decodeURIComponent(encSource);
+  const navigate = useNavigate();
+  const [problems, setProblems] = useState<ProblemData[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const refetch = async () => {
+    try {
+      const r = await fetch(
+        `/api/tsumego/collections/${encodeURIComponent(source)}/problems`,
+        { cache: 'no-store' },
+      );
+      if (!r.ok) throw new Error(r.statusText);
+      const data = await r.json();
+      setProblems(data.problems);
+    } catch (e) {
+      setError(String(e));
+      setProblems([]);
+    }
+  };
+
+  useEffect(() => { refetch(); }, [source]);
+
+  const enterSelect = () => {
+    setSelecting(true);
+    setSelectedIds(new Set());
+  };
+  const exitSelect = () => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  };
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const deleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const ok = confirm(
+      `Delete ${ids.length} problem${ids.length === 1 ? '' : 's'} from this collection? This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      // Fire the deletes in parallel — each hits its own tsumego_*.json
+      // so there's no contention.
+      await Promise.all(
+        ids.map((id) => fetch(`/api/tsumego/${id}`, { method: 'DELETE' })),
+      );
+      exitSelect();
+      await refetch();
+    } catch (e) {
+      setError(`Delete failed: ${e}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const counts = {
+    unreviewed: 0, accepted: 0, accepted_edited: 0, rejected: 0,
+  } as Record<string, number>;
+  (problems ?? []).forEach((p) => {
+    if (p.status in counts) counts[p.status]++;
+  });
+  const firstUnreviewed = (problems ?? []).find((p) => p.status === 'unreviewed');
+
+  return (
+    <div className="collection">
+      <header className="collection-header">
+        <div>
+          <Link to="/" className="back-link">← home</Link>
+          <h1>{source}</h1>
+          {problems && (
+            <div className="collection-stats">
+              {problems.length} total &nbsp;·&nbsp;
+              <span className="stat-unreviewed">{counts.unreviewed} unreviewed</span> &nbsp;·&nbsp;
+              <span className="stat-accepted">{counts.accepted} accepted</span>
+              {counts.accepted_edited > 0 && (
+                <> &nbsp;·&nbsp; <span className="stat-accepted_edited">{counts.accepted_edited} edited</span></>
+              )}
+              {counts.rejected > 0 && (
+                <> &nbsp;·&nbsp; <span className="stat-rejected">{counts.rejected} rejected</span></>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="collection-header-actions">
+          {!selecting && (
+            <>
+              <button
+                className="review-btn"
+                disabled={!firstUnreviewed}
+                onClick={() => navigate(`/collections/${encodeURIComponent(source)}/review`)}
+              >
+                Review unreviewed ({counts.unreviewed})
+              </button>
+              <button
+                className="review-rejected-btn"
+                disabled={counts.rejected === 0}
+                onClick={() => navigate(`/collections/${encodeURIComponent(source)}/review?status=rejected`)}
+                title="Revisit problems you previously rejected"
+              >
+                Review rejected ({counts.rejected})
+              </button>
+              <button
+                className="delete-mode-btn"
+                onClick={enterSelect}
+                disabled={(problems?.length ?? 0) === 0}
+              >
+                Delete…
+              </button>
+            </>
+          )}
+          {selecting && (
+            <>
+              <span className="selection-count">
+                {selectedIds.size} selected
+              </span>
+              <button className="cancel-btn" onClick={exitSelect} disabled={deleting}>
+                Cancel
+              </button>
+              <button
+                className="confirm-delete-btn"
+                onClick={deleteSelected}
+                disabled={selectedIds.size === 0 || deleting}
+              >
+                {deleting ? 'Deleting…' : `Delete ${selectedIds.size}`}
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {error && <div className="collection-error">{error}</div>}
+
+      {problems !== null && problems.length === 0 && !error && (
+        <p className="collection-empty">No problems in this collection.</p>
+      )}
+
+      {problems !== null && problems.length > 0 && (
+        <ul className="problem-grid">
+          {problems.map((p) => {
+            const selected = selectedIds.has(p.id);
+            const tileBody = (
+              <>
+                <div className="tile-thumb">
+                  {p.image ? (
+                    <img src={`/api/tsumego/${p.id}/image.png`} alt="" />
+                  ) : (
+                    <div className="tile-noimg">no image</div>
+                  )}
+                  <div className={`tile-badge badge-${p.status}`}>
+                    {statusSymbol(p.status)}
+                  </div>
+                  {selecting && (
+                    <div className="tile-checkbox" aria-label={selected ? 'selected' : 'not selected'}>
+                      {selected ? '✓' : ''}
+                    </div>
+                  )}
+                </div>
+                <div className="tile-caption">
+                  #{p.source_board_idx + 1}
+                  <span className="tile-status">{humanStatus(p.status)}</span>
+                </div>
+              </>
+            );
+            return (
+              <li
+                key={p.id}
+                className={`problem-tile status-${p.status}${selected ? ' selected' : ''}`}
+              >
+                {selecting ? (
+                  <button
+                    type="button"
+                    className="tile-select-btn"
+                    onClick={() => toggleSelect(p.id)}
+                    disabled={deleting}
+                    aria-pressed={selected}
+                  >
+                    {tileBody}
+                  </button>
+                ) : (
+                  <Link to={`/collections/${encodeURIComponent(source)}/problem/${p.id}`}>
+                    {tileBody}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function statusSymbol(s: string): string {
+  if (s === 'accepted') return '✓';
+  if (s === 'accepted_edited') return '✓*';
+  if (s === 'rejected') return '✗';
+  return '?';
+}
+
+function humanStatus(s: string): string {
+  if (s === 'accepted') return 'accepted';
+  if (s === 'accepted_edited') return 'edited';
+  if (s === 'rejected') return 'rejected';
+  return 'unreviewed';
+}

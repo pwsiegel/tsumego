@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from . import __version__
 from .inference import ModelNotLoaded, detect_boards_yolo
@@ -16,6 +16,16 @@ from .schemas import (
     BoardListResponse,
     DiscretizedStoneOut,
     HealthResponse,
+    Collection,
+    CollectionsResponse,
+    DeleteCollectionResponse,
+    ProblemsResponse,
+    SaveTsumegoRequest,
+    SaveTsumegoResponse,
+    TsumegoProblem,
+    TsumegoStone,
+    UpdateProblemRequest,
+    UpdateProblemResponse,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -193,15 +203,11 @@ def board_crop_endpoint(page_idx: int, bbox_idx: int) -> Response:
     return Response(content=buf.tobytes(), media_type="image/png")
 
 
-@app.get("/api/pdf/board-discretize/{page_idx}/{bbox_idx}",
-         response_model=BoardDiscretizeLocal)
-def board_discretize_endpoint(
-    page_idx: int, bbox_idx: int,
-    peak_thresh: float = 0.3,
+def _discretize_board(
+    page_idx: int, bbox_idx: int, peak_thresh: float = 0.3,
 ) -> BoardDiscretizeLocal:
-    """End-to-end 2b pipeline for a single bbox: stone CNN → edge classifier
-    → classical discretizer. Returns discrete (col, row) per stone plus the
-    inferred grid geometry and 19x19 window placement."""
+    """Run the full 2b pipeline on one bbox. Shared by the HTTP endpoint
+    and the batch-ingest flow."""
     from .discretize import discretize
     from .edge_inference import detect_edges
     from .pitch import measure_grid
@@ -268,6 +274,8 @@ def board_discretize_endpoint(
     #   - caption glyphs ("problem 36", "O", "8", …) → out-of-bounds
     #   - hoshi (star-point dots) → tiny bboxes, inside the board
     if pitch_x is not None and pitch_y is not None and pitch_x > 0 and pitch_y > 0:
+        BOARD_MAX = 18  # 19x19 grid
+
         def _lo(frame, origin, pitch):
             if frame is not None:
                 return frame - pitch * 0.5
@@ -275,17 +283,28 @@ def board_discretize_endpoint(
                 return origin - pitch * 0.25
             return -1e9
 
-        def _hi(frame, last_near, pitch):
-            if frame is not None:
-                return frame + pitch * 0.5
+        def _hi_from_origin(opposite_frame, origin, last_near, pitch, crop_size):
+            """Upper bound on the board extent along one axis.
+
+            Prefer: opposite frame → definitive.
+            Else:   extrapolate from the near-side origin (origin + 18·pitch),
+                    capped at the crop edge. Works even when the frame-line
+                    scanner terminates early in noisy regions, which otherwise
+                    would clip legitimate detections near the far side.
+            Else:   fall back to the scanner's last-confirmed grid line.
+            """
+            if opposite_frame is not None:
+                return opposite_frame + pitch * 0.5
+            if origin is not None:
+                return min(crop_size, origin + BOARD_MAX * pitch + pitch * 0.5)
             if last_near is not None:
                 return last_near + pitch * 0.25
             return 1e9
 
         top_b = _lo(grid["top"], oy, pitch_y)
-        bot_b = _hi(grid["bottom"], grid["top_last"], pitch_y)
+        bot_b = _hi_from_origin(grid["bottom"], oy, grid["top_last"], pitch_y, h)
         left_b = _lo(grid["left"], ox, pitch_x)
-        right_b = _hi(grid["right"], grid["left_last"], pitch_x)
+        right_b = _hi_from_origin(grid["right"], ox, grid["left_last"], pitch_x, w)
         stones = [
             s for s in stones
             if top_b <= s["y"] <= bot_b and left_b <= s["x"] <= right_b
@@ -336,4 +355,380 @@ def board_discretize_endpoint(
             col=s.col, row=s.row,
         ) for s in d.stones],
     )
+
+
+@app.get("/api/pdf/board-discretize/{page_idx}/{bbox_idx}",
+         response_model=BoardDiscretizeLocal)
+def board_discretize_endpoint(
+    page_idx: int, bbox_idx: int,
+    peak_thresh: float = 0.3,
+) -> BoardDiscretizeLocal:
+    """End-to-end 2b pipeline for a single bbox."""
+    return _discretize_board(page_idx, bbox_idx, peak_thresh)
+
+
+@app.post("/api/tsumego/save", response_model=SaveTsumegoResponse)
+def tsumego_save_endpoint(req: SaveTsumegoRequest) -> SaveTsumegoResponse:
+    """Persist an accepted problem as SGF + metadata JSON + crop PNG."""
+    import cv2
+    from .tsumego import save_problem
+
+    # Grab the crop for this page/bbox from the currently-uploaded PDF
+    # and encode as PNG. The source PDF is still on disk in BBOX_TEST_DIR
+    # for the duration of the upload-review flow, so this is always
+    # available at the moment Accept is clicked.
+    crop_png: bytes | None = None
+    try:
+        crop, _, _ = _board_crop(req.page_idx, req.bbox_idx)
+        ok, buf = cv2.imencode(".png", crop)
+        if ok:
+            crop_png = buf.tobytes()
+    except HTTPException:
+        # If the crop's gone (e.g. PDF was swapped), still save the SGF.
+        pass
+
+    stones = [s.model_dump() for s in req.stones]
+    path = save_problem(
+        source=req.source,
+        uploaded_at=req.uploaded_at,
+        source_board_idx=req.source_board_idx,
+        stones=stones,
+        black_to_play=req.black_to_play,
+        crop_png=crop_png,
+        status=req.status,
+    )
+    return SaveTsumegoResponse(id=path.stem)
+
+
+@app.get("/api/tsumego/collections", response_model=CollectionsResponse)
+def tsumego_collections_endpoint() -> CollectionsResponse:
+    from .tsumego import list_collections
+    items = list_collections()
+    return CollectionsResponse(
+        collections=[Collection(**c) for c in items]
+    )
+
+
+@app.delete("/api/tsumego/collections/{source:path}",
+            response_model=DeleteCollectionResponse)
+def tsumego_collection_delete_endpoint(source: str) -> DeleteCollectionResponse:
+    """Remove every saved problem whose source matches `source`.
+    Path uses :path so names with dots (the usual case) pass through."""
+    from .tsumego import delete_collection
+    removed = delete_collection(source)
+    return DeleteCollectionResponse(source=source, removed=removed)
+
+
+@app.post("/api/pdf/ingest")
+async def pdf_ingest_endpoint(file: UploadFile = File(...)) -> StreamingResponse:
+    """Upload a PDF, render pages, run the full detect→discretize pipeline
+    on every board, save each as an unreviewed problem. Streams NDJSON
+    progress events so the UI can show per-board progress."""
+    import io
+    import json as _json
+    import shutil
+    import time
+    import cv2
+    import numpy as np
+    import pypdfium2 as pdfium
+    from .paths import BBOX_TEST_DIR
+    from .tsumego import save_problem, problem_exists
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
+    source_name = file.filename or "uploaded.pdf"
+    uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # Wipe the bbox_test staging dir first — the detect/discretize
+    # endpoints key off of these per-page PNGs.
+    if BBOX_TEST_DIR.exists():
+        shutil.rmtree(BBOX_TEST_DIR)
+    BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        pdf = pdfium.PdfDocument(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid PDF: {e}") from e
+    total_pages = len(pdf)
+
+    def iter_events():
+        yield _json.dumps({
+            "event": "start", "source": source_name,
+            "uploaded_at": uploaded_at, "total_pages": total_pages,
+        }) + "\n"
+
+        # First pass: render every page so board-detect caches work.
+        for i, page in enumerate(pdf):
+            pil_img = page.render(scale=2.0).to_pil()
+            img_bgr = np.array(pil_img)[..., ::-1].copy()
+            ok, buf = cv2.imencode(".png", img_bgr)
+            if ok:
+                (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
+            yield _json.dumps({
+                "event": "page_rendered", "page": i + 1, "total_pages": total_pages,
+            }) + "\n"
+
+        # Second pass: detect boards on each page, then discretize and
+        # save. We emit the flat source_board_idx as each board is saved.
+        total_saved = 0
+        skipped = 0
+        source_board_idx = 0
+        for page_idx in range(total_pages):
+            _, bboxes = _page_bboxes(page_idx)
+            for bbox_idx in range(len(bboxes)):
+                # Skip if we've already saved a problem here (re-ingest).
+                if problem_exists(source_name, source_board_idx):
+                    skipped += 1
+                    source_board_idx += 1
+                    continue
+                try:
+                    d = _discretize_board(page_idx, bbox_idx)
+                    crop, _, _ = _board_crop(page_idx, bbox_idx)
+                    ok, buf = cv2.imencode(".png", crop)
+                    crop_png = buf.tobytes() if ok else None
+                    save_problem(
+                        source=source_name,
+                        uploaded_at=uploaded_at,
+                        source_board_idx=source_board_idx,
+                        stones=[{
+                            "col": s.col, "row": s.row, "color": s.color,
+                        } for s in d.stones],
+                        black_to_play=True,
+                        crop_png=crop_png,
+                        status="unreviewed",
+                        page_idx=page_idx,
+                        bbox_idx=bbox_idx,
+                    )
+                    total_saved += 1
+                except Exception as e:
+                    log.warning("ingest: board %d (page %d bbox %d) failed: %s",
+                                source_board_idx, page_idx, bbox_idx, e)
+                yield _json.dumps({
+                    "event": "board_saved",
+                    "source_board_idx": source_board_idx,
+                    "page_idx": page_idx,
+                    "bbox_idx": bbox_idx,
+                    "total_saved": total_saved,
+                }) + "\n"
+                source_board_idx += 1
+
+        yield _json.dumps({
+            "event": "done",
+            "source": source_name,
+            "total_saved": total_saved,
+            "skipped": skipped,
+        }) + "\n"
+
+    return StreamingResponse(iter_events(), media_type="application/x-ndjson")
+
+
+@app.get("/api/tsumego/collections/{source:path}/problems",
+         response_model=ProblemsResponse)
+def tsumego_collection_problems_endpoint(source: str) -> ProblemsResponse:
+    from .tsumego import list_problems
+    items = list_problems(source)
+    return ProblemsResponse(problems=[
+        TsumegoProblem(
+            id=p["id"], source=p["source"], uploaded_at=p["uploaded_at"],
+            source_board_idx=p["source_board_idx"],
+            page_idx=p.get("page_idx"), bbox_idx=p.get("bbox_idx"),
+            status=p.get("status", "unreviewed"),
+            image=p.get("image"),
+            black_to_play=p.get("black_to_play", True),
+            stones=[TsumegoStone(**s) for s in p.get("stones", [])],
+        ) for p in items
+    ])
+
+
+@app.get("/api/tsumego/{problem_id}/image.png")
+def tsumego_image_endpoint(problem_id: str) -> Response:
+    from .paths import TSUMEGO_DIR
+    from .tsumego import load_problem
+    meta = load_problem(problem_id)
+    if meta is None or not meta.get("image"):
+        raise HTTPException(status_code=404, detail="image not found")
+    path = TSUMEGO_DIR / meta["image"]
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="image file missing")
+    return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@app.get("/api/tsumego/{problem_id}", response_model=TsumegoProblem)
+def tsumego_get_endpoint(problem_id: str) -> TsumegoProblem:
+    from .tsumego import load_problem
+    p = load_problem(problem_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail=problem_id)
+    return TsumegoProblem(
+        id=p["id"], source=p["source"], uploaded_at=p["uploaded_at"],
+        source_board_idx=p["source_board_idx"],
+        page_idx=p.get("page_idx"), bbox_idx=p.get("bbox_idx"),
+        status=p.get("status", "unreviewed"),
+        image=p.get("image"),
+        black_to_play=p.get("black_to_play", True),
+        stones=[TsumegoStone(**s) for s in p.get("stones", [])],
+    )
+
+
+@app.post("/api/val/{dataset}/problems/{stem}/stones")
+def val_update_stones_endpoint(dataset: str, stem: str, req: dict) -> dict:
+    """Overwrite the ground-truth stones for a problem in a val dataset.
+
+    Rewrites metadata/{stem}.json (authoritative), regenerates the SGF,
+    and updates the GT + matches_gt flags in the pre-computed
+    comparison.json so the UI reflects the edit on the next fetch.
+    Also appends an entry to gt_edits.json so the user has an audit
+    trail of annotation changes for later propagation to other stores.
+    """
+    import json as _json
+    import time
+    from .paths import DATA_DIR
+    from .tsumego import stones_to_sgf
+
+    stones = req.get("stones")
+    if not isinstance(stones, list):
+        raise HTTPException(status_code=400, detail="expected stones: list")
+    norm = [
+        {"col": int(s["col"]), "row": int(s["row"]), "color": str(s["color"])}
+        for s in stones
+    ]
+
+    val_dir = DATA_DIR / "val" / dataset
+    meta_path = val_dir / "metadata" / f"{stem}.json"
+    if not meta_path.exists():
+        raise HTTPException(status_code=404, detail=f"{stem} not found in val/{dataset}")
+    meta = _json.loads(meta_path.read_text())
+    before = meta.get("stones", [])
+    meta["stones"] = norm
+
+    image_filename = meta.get("image") or meta.get("sgf", "").replace(".sgf", ".png")
+    sgf_text = stones_to_sgf(
+        norm, bool(meta.get("black_to_play", True)),
+        image_ref=f"./{image_filename}" if image_filename else None,
+    )
+
+    meta_path.write_text(_json.dumps(meta, indent=2))
+    sgf_path = val_dir / "sgf" / f"{stem}.sgf"
+    sgf_path.write_text(sgf_text)
+
+    # Sync comparison.json if present so the UI's cached source of truth
+    # also picks up the edit.
+    comp_path = val_dir / "comparison.json"
+    if comp_path.exists():
+        comp = _json.loads(comp_path.read_text())
+        for p in comp.get("problems", []):
+            if p["stem"] == stem:
+                p["gt"] = norm
+                gt_set = {(s["col"], s["row"], s["color"]) for s in norm}
+                old_set = {(s["col"], s["row"], s["color"]) for s in p["old"]}
+                new_set = {(s["col"], s["row"], s["color"]) for s in p["new"]}
+                p["old_matches_gt"] = old_set == gt_set
+                p["new_matches_gt"] = new_set == gt_set
+                break
+        comp_path.write_text(_json.dumps(comp, indent=2))
+
+    # Audit-trail log: gt_edits.json is a chronological list of every
+    # ground-truth edit made through this UI. Each entry records before/
+    # after + a diff summary so edits can be propagated to the live
+    # tsumego collection (or elsewhere) later without opening every file.
+    before_set = {(s["col"], s["row"], s["color"]) for s in before}
+    after_set = {(s["col"], s["row"], s["color"]) for s in norm}
+    before_pos = {(s["col"], s["row"]): s["color"] for s in before}
+    after_pos = {(s["col"], s["row"]): s["color"] for s in norm}
+    color_flips = [
+        {"col": c, "row": r, "from": before_pos[(c, r)], "to": after_pos[(c, r)]}
+        for (c, r) in before_pos.keys() & after_pos.keys()
+        if before_pos[(c, r)] != after_pos[(c, r)]
+    ]
+    flip_positions = {(f["col"], f["row"]) for f in color_flips}
+    added = sorted(
+        {(c, r, col) for (c, r, col) in after_set - before_set
+         if (c, r) not in flip_positions}
+    )
+    removed = sorted(
+        {(c, r, col) for (c, r, col) in before_set - after_set
+         if (c, r) not in flip_positions}
+    )
+    entry = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "stem": stem,
+        "source": meta.get("source"),
+        "source_board_idx": meta.get("source_board_idx"),
+        "original_tsumego_id": meta.get("id"),
+        "before": before,
+        "after": norm,
+        "added": [{"col": c, "row": r, "color": col} for (c, r, col) in added],
+        "removed": [{"col": c, "row": r, "color": col} for (c, r, col) in removed],
+        "color_flips": color_flips,
+    }
+    edits_path = val_dir / "gt_edits.json"
+    edits: list[dict] = []
+    if edits_path.exists():
+        try:
+            edits = _json.loads(edits_path.read_text())
+        except _json.JSONDecodeError:
+            edits = []
+    edits.append(entry)
+    edits_path.write_text(_json.dumps(edits, indent=2))
+
+    return {"ok": True, "stem": stem, "stones": norm}
+
+
+@app.get("/api/val/{dataset}/gt-edits")
+def val_gt_edits_endpoint(dataset: str) -> Response:
+    """Chronological log of ground-truth edits made through the compare UI."""
+    import json as _json
+    from .paths import DATA_DIR
+    path = DATA_DIR / "val" / dataset / "gt_edits.json"
+    if not path.exists():
+        return Response(content=_json.dumps([]), media_type="application/json")
+    return Response(content=path.read_bytes(), media_type="application/json")
+
+
+@app.get("/api/val/{dataset}/comparison")
+def val_comparison_endpoint(dataset: str) -> Response:
+    """Serve the comparison JSON emitted by generate_comparison.py."""
+    from .paths import DATA_DIR
+    path = DATA_DIR / "val" / dataset / "comparison.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"no comparison.json in val/{dataset}")
+    return Response(content=path.read_bytes(), media_type="application/json")
+
+
+@app.get("/api/val/{dataset}/images/{stem}.png")
+def val_image_endpoint(dataset: str, stem: str) -> Response:
+    from .paths import DATA_DIR
+    path = DATA_DIR / "val" / dataset / "images" / f"{stem}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"image not found: {stem}")
+    return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@app.delete("/api/tsumego/{problem_id}")
+def tsumego_delete_endpoint(problem_id: str) -> dict:
+    from .tsumego import delete_problem
+    if not delete_problem(problem_id):
+        raise HTTPException(status_code=404, detail=problem_id)
+    return {"id": problem_id, "deleted": True}
+
+
+@app.post("/api/tsumego/{problem_id}/status", response_model=UpdateProblemResponse)
+def tsumego_update_endpoint(
+    problem_id: str, req: UpdateProblemRequest,
+) -> UpdateProblemResponse:
+    from .tsumego import update_problem
+    stones = [s.model_dump() for s in req.stones] if req.stones is not None else None
+    try:
+        meta = update_problem(
+            problem_id,
+            status=req.status,
+            stones=stones,
+            black_to_play=req.black_to_play,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if meta is None:
+        raise HTTPException(status_code=404, detail=problem_id)
+    return UpdateProblemResponse(id=meta["id"], status=meta["status"])
 

@@ -19,16 +19,25 @@
   fill: #2b1d10;
 }
 
+.coord-label text {
+  fill: #5a452b;
+  font-family: ui-monospace, monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
 .stone-black {
   fill: #111;
   stroke: #000;
   stroke-width: 0.5;
+  pointer-events: none;  /* let clicks pass through to the hit rect below */
 }
 
 .stone-white {
   fill: #fafafa;
   stroke: #222;
   stroke-width: 1;
+  pointer-events: none;
 }
 
 .label-on-black {
@@ -53,6 +62,9 @@
 .hit:hover {
   fill: rgba(0, 0, 0, 0.08);
 }
+
+.board.display-only .hit { cursor: default; }
+.board.display-only .hit:hover { fill: transparent; }
 
 .hit.occupied {
   cursor: default;
