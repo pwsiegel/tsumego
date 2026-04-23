@@ -206,74 +206,15 @@ def board_crop_endpoint(page_idx: int, bbox_idx: int) -> Response:
 def _resolve_geometry(
     crop_bgr,
 ) -> tuple[float | None, float | None, float | None, float | None, dict[str, bool]]:
-    """Compute grid geometry from corner detector, falling back to classical.
+    """Compute grid geometry from classical edge/pitch detection.
 
     Returns (pitch_x, pitch_y, origin_x, origin_y, edges).
     """
-    import logging
-    import numpy as np
-    log = logging.getLogger(__name__)
-
-    # Try corner detector first.
-    corners: list[dict] = []
-    try:
-        from .corner_inference import detect_corners, model_available as corner_model_available
-        if corner_model_available():
-            corners = detect_corners(crop_bgr)
-    except Exception:
-        corners = []
-
-    by_name = {c["corner"]: c for c in corners}
     h, w = crop_bgr.shape[:2]
 
-    # With 2+ corners we can derive geometry directly.
-    if len(corners) >= 2:
-        pitch_x, pitch_y, ox, oy = None, None, None, None
-
-        # Horizontal pairs → pitch_x
-        for left, right in [("tl", "tr"), ("bl", "br")]:
-            if left in by_name and right in by_name:
-                pitch_x = (by_name[right]["x"] - by_name[left]["x"]) / 18
-                break
-        # Vertical pairs → pitch_y
-        for top, bot in [("tl", "bl"), ("tr", "br")]:
-            if top in by_name and bot in by_name:
-                pitch_y = (by_name[bot]["y"] - by_name[top]["y"]) / 18
-                break
-        # Fill missing axis from the other if we have a diagonal pair
-        if pitch_x is None and pitch_y is not None:
-            pitch_x = pitch_y  # assume square cells
-        if pitch_y is None and pitch_x is not None:
-            pitch_y = pitch_x
-
-        # Origin from top-left corner (or extrapolate from others)
-        if "tl" in by_name:
-            ox, oy = by_name["tl"]["x"], by_name["tl"]["y"]
-        elif "tr" in by_name and pitch_x:
-            ox, oy = by_name["tr"]["x"] - 18 * pitch_x, by_name["tr"]["y"]
-        elif "bl" in by_name and pitch_y:
-            ox, oy = by_name["bl"]["x"], by_name["bl"]["y"] - 18 * pitch_y
-        elif "br" in by_name and pitch_x and pitch_y:
-            ox = by_name["br"]["x"] - 18 * pitch_x
-            oy = by_name["br"]["y"] - 18 * pitch_y
-
-        # Infer edges from which corners are present
-        edges = {
-            "top": "tl" in by_name and "tr" in by_name,
-            "bottom": "bl" in by_name and "br" in by_name,
-            "left": "tl" in by_name and "bl" in by_name,
-            "right": "tr" in by_name and "br" in by_name,
-        }
-
-        if pitch_x and pitch_y and ox is not None and oy is not None:
-            log.info("geometry from %d corners: pitch=(%.1f, %.1f) origin=(%.1f, %.1f)",
-                     len(corners), pitch_x, pitch_y, ox, oy)
-            return pitch_x, pitch_y, ox, oy, edges
-
-    # Fall back to classical edge + pitch detection.
+    # --- Classical edge + pitch detection ---
     from .edge_inference import detect_edges
     from .pitch import measure_grid
-
     try:
         edges = detect_edges(crop_bgr)
     except Exception:
@@ -332,7 +273,7 @@ def _discretize_board(
     except StoneModelNotLoaded as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
-    # --- Geometry: try corner detector first, fall back to classical ---
+    # --- Geometry ---
     pitch_x, pitch_y, ox, oy, edges = _resolve_geometry(crop)
     # Drop detections outside the board area, and drop detections whose
     # bbox is way smaller than a real stone — YOLO fires on:
@@ -743,6 +684,100 @@ def val_image_endpoint(dataset: str, stem: str) -> Response:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"image not found: {stem}")
     return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@app.get("/api/val/{dataset}/run")
+def val_run_endpoint(dataset: str, status: str = "accepted") -> Response:
+    """Run the live pipeline against every problem in the validation set.
+
+    Returns JSON with summary stats and per-problem results so the UI can
+    render a report without needing a pre-computed comparison.json.
+    """
+    import json as _json
+    import cv2
+    from .paths import DATA_DIR
+    from .compare_on_val import _run_pipeline
+
+    val_dir = DATA_DIR / "val" / dataset
+    manifest_path = val_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"no manifest in val/{dataset}")
+
+    manifest = _json.loads(manifest_path.read_text())
+    if status == "all":
+        entries = manifest["problems"]
+    else:
+        entries = [p for p in manifest["problems"] if p["status"] == status]
+
+    results: list[dict] = []
+    exact = 0
+    for entry in entries:
+        stem = entry["stem"]
+        meta_path = val_dir / "metadata" / f"{stem}.json"
+        if not meta_path.exists():
+            results.append({"stem": stem, "status": "error", "error": "metadata not found"})
+            continue
+        meta = _json.loads(meta_path.read_text())
+        gt = {(s["col"], s["row"], s["color"]) for s in meta.get("stones", [])}
+
+        img_path = val_dir / "images" / f"{stem}.png"
+        crop = cv2.imread(str(img_path))
+        if crop is None:
+            results.append({"stem": stem, "status": "error", "error": "image not found"})
+            continue
+
+        try:
+            pred = _run_pipeline(crop, peak_thresh=0.3)
+        except Exception as e:
+            results.append({"stem": stem, "status": "error", "error": str(e)})
+            continue
+
+        if pred == gt:
+            exact += 1
+            results.append({"stem": stem, "status": "exact"})
+        else:
+            missed = gt - pred
+            extra = pred - gt
+            gt_pos = {(c, r): col for (c, r, col) in gt}
+            pred_pos = {(c, r): col for (c, r, col) in pred}
+            flips = [
+                {"col": c, "row": r, "gt_color": gt_pos[(c, r)], "pred_color": pred_pos[(c, r)]}
+                for (c, r) in gt_pos.keys() & pred_pos.keys()
+                if gt_pos[(c, r)] != pred_pos[(c, r)]
+            ]
+            flip_positions = {(f["col"], f["row"]) for f in flips}
+            missed = [{"col": c, "row": r, "color": col}
+                      for (c, r, col) in sorted(missed) if (c, r) not in flip_positions]
+            extra = [{"col": c, "row": r, "color": col}
+                     for (c, r, col) in sorted(extra) if (c, r) not in flip_positions]
+
+            gt_stones = [{"col": s["col"], "row": s["row"], "color": s["color"]}
+                         for s in meta.get("stones", [])]
+            pred_stones = [{"col": c, "row": r, "color": col}
+                           for (c, r, col) in sorted(pred)]
+
+            results.append({
+                "stem": stem,
+                "status": "changed",
+                "gt_count": len(gt),
+                "pred_count": len(pred),
+                "missed": missed,
+                "extra": extra,
+                "flips": flips,
+                "gt_stones": gt_stones,
+                "pred_stones": pred_stones,
+            })
+
+    body = {
+        "dataset": dataset,
+        "filter_status": status,
+        "total": len(entries),
+        "exact": exact,
+        "changed": sum(1 for r in results if r["status"] == "changed"),
+        "errors": sum(1 for r in results if r["status"] == "error"),
+        "problems": results,
+    }
+    return Response(content=_json.dumps(body), media_type="application/json")
 
 
 @app.delete("/api/tsumego/{problem_id}")

@@ -28,68 +28,20 @@ def _run_pipeline(crop_bgr, peak_thresh: float):
     """Mirror main._discretize_board on a raw crop. Returns a set of
     (col, row, color) tuples — the final discretized stones."""
     from .discretize import discretize
-    from .edge_inference import detect_edges
-    from .pitch import measure_grid
+    from .main import _resolve_geometry
     from .stone_inference import detect_stones_cnn
 
     h, w = crop_bgr.shape[:2]
     stones = detect_stones_cnn(crop_bgr, peak_thresh=peak_thresh)
 
-    try:
-        edges = detect_edges(crop_bgr)
-    except Exception:
-        edges = {"left": False, "right": False, "top": False, "bottom": False}
-    grid = measure_grid(crop_bgr, edges)
-    pitch = grid["pitch"]
-
-    # Per-axis pitch selection (copied verbatim from main._discretize_board).
-    if grid["left"] is not None and grid["right"] is not None:
-        pitch_x = (grid["right"] - grid["left"]) / 18
-    elif grid["left"] is not None:
-        pitch_x = grid["left_pitch"] or pitch
-    elif grid["right"] is not None:
-        pitch_x = grid["right_pitch"] or pitch
-    else:
-        pitch_x = pitch
-    if grid["top"] is not None and grid["bottom"] is not None:
-        pitch_y = (grid["bottom"] - grid["top"]) / 18
-    elif grid["top"] is not None:
-        pitch_y = grid["top_pitch"] or pitch
-    elif grid["bottom"] is not None:
-        pitch_y = grid["bottom_pitch"] or pitch
-    else:
-        pitch_y = pitch
-
-    ox, oy = None, None
-    if pitch_y is not None:
-        if grid["top"] is not None:
-            oy = grid["top"]
-        elif grid["bottom"] is not None:
-            oy_full = grid["bottom"] - 18 * pitch_y
-            oy = oy_full if oy_full >= 0 else grid["bottom"] - int(grid["bottom"] / pitch_y) * pitch_y
-    if pitch_x is not None:
-        if grid["left"] is not None:
-            ox = grid["left"]
-        elif grid["right"] is not None:
-            ox_full = grid["right"] - 18 * pitch_x
-            ox = ox_full if ox_full >= 0 else grid["right"] - int(grid["right"] / pitch_x) * pitch_x
+    pitch_x, pitch_y, ox, oy, edges = _resolve_geometry(crop_bgr)
 
     if pitch_x and pitch_y and pitch_x > 0 and pitch_y > 0:
         BOARD_MAX = 18
-        def _lo(frame, origin, p):
-            if frame is not None: return frame - p * 0.5
-            if origin is not None: return origin - p * 0.25
-            return -1e9
-        def _hi(opposite_frame, origin, last_near, p, crop_size):
-            if opposite_frame is not None: return opposite_frame + p * 0.5
-            if origin is not None:
-                return min(crop_size, origin + BOARD_MAX * p + p * 0.5)
-            if last_near is not None: return last_near + p * 0.25
-            return 1e9
-        top_b = _lo(grid["top"], oy, pitch_y)
-        bot_b = _hi(grid["bottom"], oy, grid["top_last"], pitch_y, h)
-        left_b = _lo(grid["left"], ox, pitch_x)
-        right_b = _hi(grid["right"], ox, grid["left_last"], pitch_x, w)
+        top_b = (oy - pitch_y * 0.5) if oy is not None else -1e9
+        bot_b = min(h, oy + BOARD_MAX * pitch_y + pitch_y * 0.5) if oy is not None else 1e9
+        left_b = (ox - pitch_x * 0.5) if ox is not None else -1e9
+        right_b = min(w, ox + BOARD_MAX * pitch_x + pitch_x * 0.5) if ox is not None else 1e9
         stones = [s for s in stones
                   if top_b <= s["y"] <= bot_b and left_b <= s["x"] <= right_b]
 
@@ -109,17 +61,13 @@ def _run_pipeline(crop_bgr, peak_thresh: float):
                 return True
             stones = [s for s in stones if _not_hoshi(s)]
 
+    pitch = (pitch_x + pitch_y) / 2 if pitch_x and pitch_y else pitch_x or pitch_y
     d = discretize(
         stones, w, h, edges=edges,
         cell_size_override=pitch,
         pitch_x_override=pitch_x, pitch_y_override=pitch_y,
         origin_x_override=ox, origin_y_override=oy,
     )
-    # Dedupe by (col, row): the stone detector sometimes fires twice near
-    # the same cell with different colors (a dark-patch-and-a-ring-around-it
-    # ambiguous detection), and the discretizer can snap both to the same
-    # intersection, producing two stones at the same (col, row) that differ
-    # only in color. Keep the highest-confidence one.
     by_cell: dict[tuple[int, int], tuple[float, str]] = {}
     for s in d.stones:
         key = (s.col, s.row)
