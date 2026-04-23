@@ -14,7 +14,6 @@ Subdirectory layout under $GOAPP_DATA_DIR:
         tsumego/             accepted problems saved from the upload flow
     models/
         board_detector.pt    YOLO board bbox detector
-        edge_classifier.pt   4-bit edge classifier
         stone_detector.pt    YOLO stone detector (classes: B, W)
         runs/                ultralytics training run artifacts
 """
@@ -34,8 +33,6 @@ MODELS_DIR = _root() / "models"
 
 # --- synth data (regenerable via goapp_api.synth) ---
 SYNTH_PAGES_DIR = DATA_DIR / "synth_pages"
-SYNTH_EDGE_CROPS_DIR = DATA_DIR / "synth_edge_crops"
-SYNTH_GRID_CROPS_DIR = DATA_DIR / "synth_grid_crops"
 
 # --- YOLO derived dataset (built from synth pages) ---
 YOLO_DIR = DATA_DIR / "yolo"
@@ -48,8 +45,6 @@ TSUMEGO_DIR = DATA_DIR / "tsumego"
 
 # --- model weights ---
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
-EDGE_CLASSIFIER_PATH = MODELS_DIR / "edge_classifier.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
-CORNER_DETECTOR_PATH = MODELS_DIR / "corner_detector.pt"
 
 MODELS_RUNS_DIR = MODELS_DIR / "runs"

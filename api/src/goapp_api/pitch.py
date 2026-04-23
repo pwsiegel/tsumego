@@ -27,15 +27,6 @@ import cv2
 import numpy as np
 
 
-def estimate_pitch(
-    crop_bgr: np.ndarray, edges: dict[str, bool],
-) -> float | None:
-    """Return cell size in pixels. Requires at least one confirmed
-    frame edge. None if measurement fails on all available sides."""
-    result = measure_grid(crop_bgr, edges)
-    return result["pitch"]
-
-
 def measure_grid(
     crop_bgr: np.ndarray, edges: dict[str, bool],
 ) -> dict:
@@ -105,11 +96,6 @@ def measure_grid(
 
     result["pitch"] = float(np.median(pitches)) if pitches else None
     return result
-
-
-def _pitch_from_side(bi: np.ndarray, side: str) -> float | None:
-    pitch, _, _ = _measure_side(bi, side)
-    return pitch
 
 
 def _measure_side(
