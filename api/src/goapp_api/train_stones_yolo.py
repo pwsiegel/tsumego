@@ -182,6 +182,8 @@ def train(data_yaml: Path, epochs: int, model_out: Path, base_model: str,
     )
     if device:
         train_kwargs["device"] = device
+        if device == "mps":
+            train_kwargs["amp"] = False  # MPS + AMP causes tensor shape mismatches
     results = model.train(**train_kwargs)
     save_dir = Path(results.save_dir)
     best = save_dir / "weights" / "best.pt"

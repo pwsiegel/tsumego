@@ -53,15 +53,11 @@ def detect_stones_cnn(
     if orig_h == 0 or orig_w == 0:
         return []
 
-    # Match training stone-scale. Upscaling a small crop (e.g. cho-chikun
-    # 336x177) to 640 stretches stones well past the training distribution
-    # and YOLO produces near-zero detections. For small crops, run at
-    # their native size (rounded up to a 32-multiple).
-    max_dim = max(orig_h, orig_w)
-    if max_dim <= TRAIN_IMG_SIZE:
-        imgsz = max(320, ((max_dim + 31) // 32) * 32)
-    else:
-        imgsz = TRAIN_IMG_SIZE
+    # The model was trained on per-board crops at imgsz=640. Small crops
+    # (e.g. cho-chikun 336x136) have stones at ~9px radius which is below
+    # the training distribution — upscaling to 640 brings them into range.
+    # Very large crops (>640) are downscaled to 640 as usual.
+    imgsz = TRAIN_IMG_SIZE
 
     results = model.predict(
         crop_bgr,

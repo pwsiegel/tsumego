@@ -203,41 +203,84 @@ def board_crop_endpoint(page_idx: int, bbox_idx: int) -> Response:
     return Response(content=buf.tobytes(), media_type="image/png")
 
 
-def _discretize_board(
-    page_idx: int, bbox_idx: int, peak_thresh: float = 0.3,
-) -> BoardDiscretizeLocal:
-    """Run the full 2b pipeline on one bbox. Shared by the HTTP endpoint
-    and the batch-ingest flow."""
-    from .discretize import discretize
+def _resolve_geometry(
+    crop_bgr,
+) -> tuple[float | None, float | None, float | None, float | None, dict[str, bool]]:
+    """Compute grid geometry from corner detector, falling back to classical.
+
+    Returns (pitch_x, pitch_y, origin_x, origin_y, edges).
+    """
+    import logging
+    import numpy as np
+    log = logging.getLogger(__name__)
+
+    # Try corner detector first.
+    corners: list[dict] = []
+    try:
+        from .corner_inference import detect_corners, model_available as corner_model_available
+        if corner_model_available():
+            corners = detect_corners(crop_bgr)
+    except Exception:
+        corners = []
+
+    by_name = {c["corner"]: c for c in corners}
+    h, w = crop_bgr.shape[:2]
+
+    # With 2+ corners we can derive geometry directly.
+    if len(corners) >= 2:
+        pitch_x, pitch_y, ox, oy = None, None, None, None
+
+        # Horizontal pairs → pitch_x
+        for left, right in [("tl", "tr"), ("bl", "br")]:
+            if left in by_name and right in by_name:
+                pitch_x = (by_name[right]["x"] - by_name[left]["x"]) / 18
+                break
+        # Vertical pairs → pitch_y
+        for top, bot in [("tl", "bl"), ("tr", "br")]:
+            if top in by_name and bot in by_name:
+                pitch_y = (by_name[bot]["y"] - by_name[top]["y"]) / 18
+                break
+        # Fill missing axis from the other if we have a diagonal pair
+        if pitch_x is None and pitch_y is not None:
+            pitch_x = pitch_y  # assume square cells
+        if pitch_y is None and pitch_x is not None:
+            pitch_y = pitch_x
+
+        # Origin from top-left corner (or extrapolate from others)
+        if "tl" in by_name:
+            ox, oy = by_name["tl"]["x"], by_name["tl"]["y"]
+        elif "tr" in by_name and pitch_x:
+            ox, oy = by_name["tr"]["x"] - 18 * pitch_x, by_name["tr"]["y"]
+        elif "bl" in by_name and pitch_y:
+            ox, oy = by_name["bl"]["x"], by_name["bl"]["y"] - 18 * pitch_y
+        elif "br" in by_name and pitch_x and pitch_y:
+            ox = by_name["br"]["x"] - 18 * pitch_x
+            oy = by_name["br"]["y"] - 18 * pitch_y
+
+        # Infer edges from which corners are present
+        edges = {
+            "top": "tl" in by_name and "tr" in by_name,
+            "bottom": "bl" in by_name and "br" in by_name,
+            "left": "tl" in by_name and "bl" in by_name,
+            "right": "tr" in by_name and "br" in by_name,
+        }
+
+        if pitch_x and pitch_y and ox is not None and oy is not None:
+            log.info("geometry from %d corners: pitch=(%.1f, %.1f) origin=(%.1f, %.1f)",
+                     len(corners), pitch_x, pitch_y, ox, oy)
+            return pitch_x, pitch_y, ox, oy, edges
+
+    # Fall back to classical edge + pitch detection.
     from .edge_inference import detect_edges
     from .pitch import measure_grid
-    from .stone_inference import StoneModelNotLoaded, detect_stones_cnn
-    from .stone_inference import model_available as stone_model_available
-    if not stone_model_available():
-        raise HTTPException(status_code=503, detail="stone detector model not trained")
-    crop, _, _ = _board_crop(page_idx, bbox_idx)
-    h, w = crop.shape[:2]
+
     try:
-        stones = detect_stones_cnn(crop, peak_thresh=peak_thresh)
-    except StoneModelNotLoaded as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-    try:
-        edges = detect_edges(crop)
+        edges = detect_edges(crop_bgr)
     except Exception:
         edges = {"left": False, "right": False, "top": False, "bottom": False}
-    grid = measure_grid(crop, edges)
+    grid = measure_grid(crop_bgr, edges)
     pitch = grid["pitch"]
-    # Drop detections outside the detected board frame — YOLO likes to
-    # fire on circular glyphs in caption text ("problem 36", etc.). Keep
-    # a half-pitch margin so stones sitting right on the frame aren't
-    # lost.
-    # Per-axis pitch selection, in order of reliability:
-    # 1. Both opposing frames detected → (R-L)/18 or (B-T)/18 (two-anchor,
-    #    very accurate, captures scan anisotropy).
-    # 2. One frame on that axis → that side's own per-side pitch (local to
-    #    the anchor, better than a global median polluted by stones on
-    #    other sides).
-    # 3. Neither → global median (or None → stone-based fallback).
+
     if grid["left"] is not None and grid["right"] is not None:
         pitch_x = (grid["right"] - grid["left"]) / 18
     elif grid["left"] is not None:
@@ -254,8 +297,7 @@ def _discretize_board(
         pitch_y = grid["bottom_pitch"] or pitch
     else:
         pitch_y = pitch
-    # Anchor origin to detected frame edges (top/left preferred, else
-    # extrapolate from bottom/right assuming a full 19-wide board).
+
     ox, oy = None, None
     if pitch_y is not None:
         if grid["top"] is not None:
@@ -269,42 +311,39 @@ def _discretize_board(
         elif grid["right"] is not None:
             ox_full = grid["right"] - 18 * pitch_x
             ox = ox_full if ox_full >= 0 else grid["right"] - int(grid["right"] / pitch_x) * pitch_x
+
+    return pitch_x, pitch_y, ox, oy, edges
+
+
+def _discretize_board(
+    page_idx: int, bbox_idx: int, peak_thresh: float = 0.3,
+) -> BoardDiscretizeLocal:
+    """Run the full 2b pipeline on one bbox. Shared by the HTTP endpoint
+    and the batch-ingest flow."""
+    from .discretize import discretize
+    from .stone_inference import StoneModelNotLoaded, detect_stones_cnn
+    from .stone_inference import model_available as stone_model_available
+    if not stone_model_available():
+        raise HTTPException(status_code=503, detail="stone detector model not trained")
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    h, w = crop.shape[:2]
+    try:
+        stones = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    except StoneModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    # --- Geometry: try corner detector first, fall back to classical ---
+    pitch_x, pitch_y, ox, oy, edges = _resolve_geometry(crop)
     # Drop detections outside the board area, and drop detections whose
     # bbox is way smaller than a real stone — YOLO fires on:
     #   - caption glyphs ("problem 36", "O", "8", …) → out-of-bounds
     #   - hoshi (star-point dots) → tiny bboxes, inside the board
     if pitch_x is not None and pitch_y is not None and pitch_x > 0 and pitch_y > 0:
         BOARD_MAX = 18  # 19x19 grid
-
-        def _lo(frame, origin, pitch):
-            if frame is not None:
-                return frame - pitch * 0.5
-            if origin is not None:
-                return origin - pitch * 0.25
-            return -1e9
-
-        def _hi_from_origin(opposite_frame, origin, last_near, pitch, crop_size):
-            """Upper bound on the board extent along one axis.
-
-            Prefer: opposite frame → definitive.
-            Else:   extrapolate from the near-side origin (origin + 18·pitch),
-                    capped at the crop edge. Works even when the frame-line
-                    scanner terminates early in noisy regions, which otherwise
-                    would clip legitimate detections near the far side.
-            Else:   fall back to the scanner's last-confirmed grid line.
-            """
-            if opposite_frame is not None:
-                return opposite_frame + pitch * 0.5
-            if origin is not None:
-                return min(crop_size, origin + BOARD_MAX * pitch + pitch * 0.5)
-            if last_near is not None:
-                return last_near + pitch * 0.25
-            return 1e9
-
-        top_b = _lo(grid["top"], oy, pitch_y)
-        bot_b = _hi_from_origin(grid["bottom"], oy, grid["top_last"], pitch_y, h)
-        left_b = _lo(grid["left"], ox, pitch_x)
-        right_b = _hi_from_origin(grid["right"], ox, grid["left_last"], pitch_x, w)
+        top_b = (oy - pitch_y * 0.5) if oy is not None else -1e9
+        bot_b = min(h, oy + BOARD_MAX * pitch_y + pitch_y * 0.5) if oy is not None else 1e9
+        left_b = (ox - pitch_x * 0.5) if ox is not None else -1e9
+        right_b = min(w, ox + BOARD_MAX * pitch_x + pitch_x * 0.5) if ox is not None else 1e9
         stones = [
             s for s in stones
             if top_b <= s["y"] <= bot_b and left_b <= s["x"] <= right_b
@@ -335,6 +374,7 @@ def _discretize_board(
                     return False
                 return True
             stones = [s for s in stones if _not_hoshi(s)]
+    pitch = (pitch_x + pitch_y) / 2 if pitch_x and pitch_y else pitch_x or pitch_y
     d = discretize(
         stones, w, h, edges=edges,
         cell_size_override=pitch,
