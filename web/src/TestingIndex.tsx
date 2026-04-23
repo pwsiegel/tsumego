@@ -23,6 +23,13 @@ export function TestingIndex() {
             inferred 19×19 grid alongside the crop.
           </span>
         </li>
+        <li>
+          <Link to="/testing/validate/hm2">Validation: hm2</Link>
+          <span className="desc">
+            Run the current pipeline against the hm2 ground-truth dataset
+            and inspect problems where the detector disagrees.
+          </span>
+        </li>
       </ul>
       <p className="home-link">
         <Link to="/">← back to app</Link>

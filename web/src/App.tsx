@@ -8,6 +8,7 @@ import { Review } from './Review';
 import { StoneTest } from './StoneTest';
 import { TestingIndex } from './TestingIndex';
 import { Upload } from './Upload';
+import { Validate } from './Validate';
 
 function BboxTestRoute() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ function App() {
       <Route path="/testing" element={<TestingIndex />} />
       <Route path="/testing/bbox" element={<BboxTestRoute />} />
       <Route path="/testing/stones" element={<StoneTestRoute />} />
+      <Route path="/testing/validate/:dataset" element={<Validate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
