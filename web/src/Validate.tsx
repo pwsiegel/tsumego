@@ -1,63 +1,38 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Board } from './Board';
+import {
+  api,
+  type Flip,
+  type ProblemResult,
+  type RunResult,
+  type ServerStone,
+} from './api';
 import type { Stone } from './types';
 import './Validate.css';
 
-type DiffStone = { col: number; row: number; color: string };
-type Flip = { col: number; row: number; gt_color: string; pred_color: string };
-
-type ProblemResult = {
-  stem: string;
-  status: 'exact' | 'changed' | 'error';
-  error?: string;
-  gt_count?: number;
-  pred_count?: number;
-  missed?: DiffStone[];
-  extra?: DiffStone[];
-  flips?: Flip[];
-  gt_stones?: DiffStone[];
-  pred_stones?: DiffStone[];
-};
-
-type RunResult = {
-  dataset: string;
-  filter_status: string;
-  total: number;
-  exact: number;
-  changed: number;
-  errors: number;
-  problems: ProblemResult[];
-};
+type RunState =
+  | { kind: 'error'; dataset: string; message: string }
+  | { kind: 'success'; dataset: string; result: RunResult };
 
 export function Validate() {
   const { dataset } = useParams<{ dataset: string }>();
-  const [result, setResult] = useState<RunResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<RunState | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'changed' | 'error'>('changed');
 
   useEffect(() => {
     if (!dataset) return;
-    setLoading(true);
-    setError(null);
-    fetch(`/api/val/${dataset}/run?status=accepted`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        setResult(data);
-        setLoading(false);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setLoading(false);
-      });
+    let cancelled = false;
+    api.val.runValidation(dataset)
+      .then((data) => { if (!cancelled) setState({ kind: 'success', dataset, result: data }); })
+      .catch((e) => { if (!cancelled) setState({ kind: 'error', dataset, message: String(e) }); });
+    return () => { cancelled = true; };
   }, [dataset]);
 
-  if (loading) {
+  // While the dataset URL param has changed but the new fetch hasn't landed
+  // yet, `state` still holds the previous dataset's result — render loading.
+  if (!state || state.dataset !== dataset) {
     return (
       <div className="validate">
         <h1>Validation: {dataset}</h1>
@@ -66,14 +41,16 @@ export function Validate() {
     );
   }
 
-  if (error || !result) {
+  if (state.kind === 'error') {
     return (
       <div className="validate">
         <h1>Validation: {dataset}</h1>
-        <p className="error">Error: {error}</p>
+        <p className="error">Error: {state.message}</p>
       </div>
     );
   }
+
+  const result = state.result;
 
   const pct = ((result.exact / result.total) * 100).toFixed(1);
   const filtered = result.problems.filter((p) => {
@@ -209,20 +186,9 @@ function ProblemDetail({
   problem: ProblemResult;
   dataset: string;
 }) {
-  // Build stone lists for the two boards.
-  // Ground truth board: show all GT stones, highlight missed ones.
-  // Predicted board: show all predicted stones, highlight extra ones.
-  // For flips, show them on both boards with a marker.
-
-  const missedSet = new Set(
-    (p.missed ?? []).map((s) => `${s.col},${s.row}`)
-  );
-  const extraSet = new Set(
-    (p.extra ?? []).map((s) => `${s.col},${s.row}`)
-  );
-  const flipMap = new Map(
-    (p.flips ?? []).map((f) => [`${f.col},${f.row}`, f])
-  );
+  // Build stone lists for the two boards. Ground-truth board shows all GT
+  // stones with missed ones highlighted by the overlay; predicted board shows
+  // all predicted stones with extras highlighted; flips are marked on both.
 
   // Compute viewport from all stones involved
   const allPositions = [
@@ -275,7 +241,6 @@ function ProblemDetail({
               missed={p.missed ?? []}
               extra={[]}
               flips={p.flips ?? []}
-              side="gt"
               viewport={viewport}
             />
           </div>
@@ -296,7 +261,6 @@ function ProblemDetail({
               missed={[]}
               extra={p.extra ?? []}
               flips={p.flips ?? []}
-              side="pred"
               viewport={viewport}
             />
           </div>
@@ -304,7 +268,7 @@ function ProblemDetail({
         <div className="detail-col image-col">
           <div className="detail-label">Crop image</div>
           <img
-            src={`/api/val/${dataset}/images/${p.stem}.png`}
+            src={api.val.imageUrl(dataset, p.stem)}
             alt={p.stem}
             className="crop-image"
           />
@@ -362,13 +326,11 @@ function DiffOverlay({
   missed,
   extra,
   flips,
-  side,
   viewport,
 }: {
-  missed: DiffStone[];
-  extra: DiffStone[];
+  missed: ServerStone[];
+  extra: ServerStone[];
   flips: Flip[];
-  side: 'gt' | 'pred';
   viewport?: { colMin: number; colMax: number; rowMin: number; rowMax: number };
 }) {
   const BUF = CELL * 0.7;

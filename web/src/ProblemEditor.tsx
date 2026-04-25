@@ -1,26 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Board } from './Board';
+import { api, type TsumegoProblem } from './api';
 import type { Stone } from './types';
 import './ProblemEditor.css';
-
-export type ProblemData = {
-  id: string;
-  source: string;
-  source_board_idx: number;
-  page_idx: number | null;
-  bbox_idx: number | null;
-  status: string;        // "unreviewed" | "accepted" | "accepted_edited" | "rejected"
-  image: string | null;
-  black_to_play: boolean;
-  stones: { col: number; row: number; color: string }[];
-};
 
 type EditorStone = Stone;
 
 type DecisionKind = 'accepted' | 'rejected';
 
 type Props = {
-  problem: ProblemData;
+  problem: TsumegoProblem;
   /** Called after the server confirms the decision. Receives the final
    * status ("accepted" | "accepted_edited" | "rejected"). */
   onDecision: (status: string) => void;
@@ -36,7 +25,7 @@ type Props = {
 export function ProblemEditor({
   problem, onDecision, onExit, onPrev, onNext, label,
 }: Props) {
-  const toEditor = (ss: ProblemData['stones']): EditorStone[] => {
+  const toEditor = (ss: TsumegoProblem['stones']): EditorStone[] => {
     // Dedupe by (col, row) (discretizer can snap two detections to the same cell).
     const byCell = new Map<string, EditorStone>();
     for (const s of ss) {
@@ -49,7 +38,7 @@ export function ProblemEditor({
     return Array.from(byCell.values());
   };
 
-  const [originalStones, setOriginalStones] = useState<EditorStone[]>(
+  const [originalStones] = useState<EditorStone[]>(
     () => toEditor(problem.stones)
   );
   const [editedStones, setEditedStones] = useState<EditorStone[]>(
@@ -58,16 +47,6 @@ export function ProblemEditor({
   const [status, setStatus] = useState(problem.status);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  // Reset when the underlying problem id changes (queue mode advances).
-  useEffect(() => {
-    const fresh = toEditor(problem.stones);
-    setOriginalStones(fresh);
-    setEditedStones(fresh);
-    setStatus(problem.status);
-    setMessage(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [problem.id]);
 
   const dirty = editedStones.length !== originalStones.length
     || editedStones.some((s) => {
@@ -94,22 +73,11 @@ export function ProblemEditor({
       // later. Rejects always save the user's current stones too.
       let finalStatus: string = decision;
       if (decision === 'accepted' && dirty) finalStatus = 'accepted_edited';
-      const body = {
+      await api.tsumego.updateProblem(problem.id, {
         status: finalStatus,
-        stones: editedStones.map((s) => ({
-          col: s.x, row: s.y, color: s.color,
-        })),
+        stones: editedStones.map((s) => ({ col: s.x, row: s.y, color: s.color })),
         black_to_play: problem.black_to_play,
-      };
-      const r = await fetch(`/api/tsumego/${problem.id}/status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
       });
-      if (!r.ok) {
-        const detail = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(detail.detail ?? r.statusText);
-      }
       setStatus(finalStatus);
       onDecision(finalStatus);
     } catch (e) {
@@ -119,9 +87,13 @@ export function ProblemEditor({
     }
   };
 
-  // Keyboard shortcuts: ← prev, → next, Enter accept.
+  // Keyboard shortcuts: ← prev, → next, Enter accept. The ref tracks the
+  // latest saveDecision closure so the keydown handler always sees fresh
+  // editedStones/dirty without re-binding the listener every render.
   const acceptRef = useRef<() => void>(() => {});
-  acceptRef.current = () => saveDecision('accepted');
+  useEffect(() => {
+    acceptRef.current = () => saveDecision('accepted');
+  });
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -168,7 +140,7 @@ export function ProblemEditor({
         <div className={`editor-crop status-${status}`}>
           {problem.image && (
             <img
-              src={`/api/tsumego/${problem.id}/image.png`}
+              src={api.tsumego.imageUrl(problem.id)}
               alt={`problem ${problem.source_board_idx}`}
             />
           )}

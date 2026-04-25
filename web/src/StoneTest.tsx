@@ -1,41 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Board } from './Board';
+import { api, type BoardDiscretize, type BoardListItem } from './api';
 import type { Stone } from './types';
 import './StoneTest.css';
-
-type BoardListItem = {
-  page_idx: number;
-  bbox_idx: number;
-  x0: number; y0: number; x1: number; y1: number;
-  confidence: number;
-};
-
-type DiscretizedStone = {
-  x: number;
-  y: number;
-  color: string;   // "B" or "W"
-  conf: number;
-  col_local: number;
-  row_local: number;
-  col: number;
-  row: number;
-};
-
-type BoardDiscretize = {
-  page_idx: number;
-  bbox_idx: number;
-  crop_width: number;
-  crop_height: number;
-  cell_size: number;
-  origin_x: number;
-  origin_y: number;
-  visible_cols: number;
-  visible_rows: number;
-  col_min: number;
-  row_min: number;
-  edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
-  stones: DiscretizedStone[];
-};
 
 type Props = {
   onExit: () => void;
@@ -53,17 +20,18 @@ export function StoneTest({ onExit }: Props) {
   const inFlight = useRef<string | null>(null);
 
   const refreshBoards = async () => {
-    const r = await fetch('/api/pdf/boards', { cache: 'no-store' });
-    if (!r.ok) {
+    try {
+      setBoards(await api.pdf.listBoards());
+      setSelected(0);
+    } catch {
       setBoards([]);
-      return;
     }
-    const data = await r.json();
-    setBoards(data.boards);
-    setSelected(0);
   };
 
   useEffect(() => {
+    // refreshBoards() writes via setState in a .then() callback; the rule
+    // can't see through the helper.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshBoards();
   }, []);
 
@@ -72,52 +40,42 @@ export function StoneTest({ onExit }: Props) {
     setResult(null);
     const img = new Image();
     img.onload = () => setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = `/api/pdf/board-crop/${item.page_idx}/${item.bbox_idx}.png?_t=${Date.now()}`;
+    img.src = api.pdf.boardCropUrl(item.page_idx, item.bbox_idx);
 
     const key = `${item.page_idx}:${item.bbox_idx}:${thresh}`;
     inFlight.current = key;
     setLoading(true);
     (async () => {
       try {
-        const r = await fetch(
-          `/api/pdf/board-discretize/${item.page_idx}/${item.bbox_idx}?peak_thresh=${thresh}&_t=${Date.now()}`,
-          { cache: 'no-store' },
-        );
+        const r = await api.pdf.discretizeBoard(item.page_idx, item.bbox_idx, thresh);
         if (inFlight.current !== key) return;
-        if (r.ok) setResult((await r.json()) as BoardDiscretize);
-        else {
-          const body = await r.json().catch(() => ({ detail: r.statusText }));
-          setStatus(`Discretize failed: ${body.detail ?? r.statusText}`);
-        }
+        setResult(r);
+      } catch (e) {
+        if (inFlight.current === key) setStatus(`Discretize failed: ${e}`);
       } finally {
         if (inFlight.current === key) setLoading(false);
       }
     })();
   };
 
+  // Derive a safe index during render; if `boards` shrinks beneath `selected`
+  // we stay in range without round-tripping through an effect.
+  const safeSelected = boards.length === 0
+    ? 0
+    : Math.max(0, Math.min(boards.length - 1, selected));
+
   useEffect(() => {
     if (boards.length === 0) return;
-    const clamped = Math.max(0, Math.min(boards.length - 1, selected));
-    if (clamped !== selected) {
-      setSelected(clamped);
-      return;
-    }
-    loadCurrent(boards[clamped], peakThresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boards, selected, peakThresh]);
+    // loadCurrent owns its setState; rule can't see through the helper.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCurrent(boards[safeSelected], peakThresh);
+  }, [boards, safeSelected, peakThresh]);
 
   const uploadPdf = async (file: File) => {
     setUploading(true);
     setStatus(`Uploading ${file.name}…`);
     try {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      const r = await fetch('/api/pdf/bbox-upload', { method: 'POST', body: form });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(body.detail ?? r.statusText);
-      }
-      const data = await r.json();
+      const data = await api.pdf.uploadPdf(file);
       setStatus(`${file.name}: ${data.page_count} pages rendered. Running YOLO on all pages…`);
       await refreshBoards();
       setStatus(`${file.name}: ${data.page_count} pages.`);
@@ -170,7 +128,7 @@ export function StoneTest({ onExit }: Props) {
     color: s.color === 'B' ? 'B' : 'W',
   }));
 
-  const current = boards[selected];
+  const current = boards[safeSelected];
   const bCount = result?.stones.filter((s) => s.color === 'B').length ?? 0;
   const wCount = result?.stones.filter((s) => s.color === 'W').length ?? 0;
   const edgeTxt = result
@@ -210,7 +168,7 @@ export function StoneTest({ onExit }: Props) {
           {boards.length === 0
             ? 'No PDF uploaded.'
             : current
-              ? `Board ${selected + 1} of ${boards.length}${loading ? ' (detecting…)' : ''}  ·  page ${current.page_idx + 1}, bbox ${current.bbox_idx}${
+              ? `Board ${safeSelected + 1} of ${boards.length}${loading ? ' (detecting…)' : ''}  ·  page ${current.page_idx + 1}, bbox ${current.bbox_idx}${
                   result
                     ? `  ·  ${bCount} B, ${wCount} W  ·  cell ${result.cell_size.toFixed(1)} px  ·  window (${result.col_min}..${result.col_min + result.visible_cols - 1}, ${result.row_min}..${result.row_min + result.visible_rows - 1})  ·  edges: ${edgeTxt}`
                     : ''
@@ -218,13 +176,13 @@ export function StoneTest({ onExit }: Props) {
               : ''}
         </div>
         <div className="stone-actions">
-          <button onClick={() => setSelected((i) => Math.max(0, i - 1))}
-                  disabled={boards.length === 0 || selected === 0}>◀</button>
+          <button onClick={() => setSelected(Math.max(0, safeSelected - 1))}
+                  disabled={boards.length === 0 || safeSelected === 0}>◀</button>
           <input
             type="number"
             min={1}
             max={Math.max(1, boards.length)}
-            value={selected + 1}
+            value={safeSelected + 1}
             disabled={boards.length === 0}
             onChange={(e) => {
               const n = Number(e.target.value);
@@ -233,8 +191,8 @@ export function StoneTest({ onExit }: Props) {
             }}
             style={{ width: '4em' }}
           />
-          <button onClick={() => setSelected((i) => Math.min(boards.length - 1, i + 1))}
-                  disabled={boards.length === 0 || selected >= boards.length - 1}>▶</button>
+          <button onClick={() => setSelected(Math.min(boards.length - 1, safeSelected + 1))}
+                  disabled={boards.length === 0 || safeSelected >= boards.length - 1}>▶</button>
           <button onClick={onExit}>Done</button>
         </div>
       </div>
@@ -245,7 +203,7 @@ export function StoneTest({ onExit }: Props) {
         <div className="stone-stage">
           <div className="stone-panel">
             <img
-              src={`/api/pdf/board-crop/${current.page_idx}/${current.bbox_idx}.png?_t=${Date.now()}`}
+              src={api.pdf.boardCropUrl(current.page_idx, current.bbox_idx)}
               alt={`page ${current.page_idx + 1} bbox ${current.bbox_idx}`}
               className="stone-img"
             />

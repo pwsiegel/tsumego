@@ -1,0 +1,48 @@
+# Build context optimisation: keep the image small + builds fast.
+
+# Git + editor metadata
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+
+# Python caches and venvs
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+
+# Node caches and outputs (Docker rebuilds these)
+**/node_modules
+web/dist
+web/dist-ssr
+**/.vite
+
+# Logs
+*.log
+
+# Docs and CI (not needed in the image)
+docs
+README.md
+TRAINING.md
+docker-compose.yml
+Makefile
+
+# Dev-only data: synth pages, YOLO datasets, val sets, the existing local
+# tsumego library — none ship with the image.
+backend/data/synth_pages
+backend/data/yolo
+backend/data/yolo_stones
+backend/data/yolo_corners
+backend/data/val
+backend/data/bbox_test
+backend/data/tsumego
+
+# Old YOLO base weight (auto-downloaded if needed)
+backend/yolov8n.pt
+
+# Tooling caches
+.claude

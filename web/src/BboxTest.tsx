@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { api, type BboxDetectResponse } from './api';
 import './BboxTest.css';
-
-type BoardBox = {
-  x0: number; y0: number; x1: number; y1: number;
-  confidence: number;
-};
-
-type DetectResponse = {
-  page_index: number;
-  page_width: number;
-  page_height: number;
-  boards: BoardBox[];
-};
 
 type Props = {
   onExit: () => void;
@@ -20,7 +9,7 @@ type Props = {
 export function BboxTest({ onExit }: Props) {
   const [pageCount, setPageCount] = useState<number>(0);
   const [pageIdx, setPageIdx] = useState<number>(0);
-  const [detect, setDetect] = useState<DetectResponse | null>(null);
+  const [detect, setDetect] = useState<BboxDetectResponse | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -31,23 +20,20 @@ export function BboxTest({ onExit }: Props) {
     setImgSize(null);
     const img = new Image();
     img.onload = () => setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = `/api/pdf/bbox-page/${idx}.png?_t=${Date.now()}`;
+    img.src = api.pdf.pageImageUrl(idx);
   };
 
   const runDetect = async (idx: number) => {
     inFlight.current = idx;
     setLoading(true);
     try {
-      const r = await fetch(
-        `/api/pdf/bbox-detect/${idx}?_t=${Date.now()}`,
-        { cache: 'no-store' },
-      );
+      const r = await api.pdf.detectBboxes(idx);
       if (inFlight.current !== idx) return;
-      if (r.ok) setDetect((await r.json()) as DetectResponse);
-      else {
+      setDetect(r);
+    } catch (e) {
+      if (inFlight.current === idx) {
         setDetect(null);
-        const body = await r.json().catch(() => ({ detail: r.statusText }));
-        setStatus(`Detect failed: ${body.detail ?? r.statusText}`);
+        setStatus(`Detect failed: ${e}`);
       }
     } finally {
       if (inFlight.current === idx) setLoading(false);
@@ -56,23 +42,17 @@ export function BboxTest({ onExit }: Props) {
 
   useEffect(() => {
     if (pageCount === 0) return;
+    // loadPageImage owns its own setState; rule can't see through the helper.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPageImage(pageIdx);
     runDetect(pageIdx);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageIdx, pageCount]);
 
   const uploadPdf = async (file: File) => {
     setUploading(true);
     setStatus(`Uploading ${file.name}…`);
     try {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      const r = await fetch('/api/pdf/bbox-upload', { method: 'POST', body: form });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(body.detail ?? r.statusText);
-      }
-      const data = await r.json();
+      const data = await api.pdf.uploadPdf(file);
       setPageCount(data.page_count);
       setPageIdx(0);
       setStatus(`${file.name}: ${data.page_count} pages rendered.`);
@@ -172,7 +152,7 @@ export function BboxTest({ onExit }: Props) {
         <div className="bbox-stage">
           <div className="bbox-panel">
             <img
-              src={`/api/pdf/bbox-page/${pageIdx}.png?_t=${Date.now()}`}
+              src={api.pdf.pageImageUrl(pageIdx)}
               alt={`page ${pageIdx + 1}`}
               className="bbox-img"
             />

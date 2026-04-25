@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ProblemEditor, type ProblemData } from './ProblemEditor';
+import { api, type TsumegoProblem } from './api';
+import { ProblemEditor } from './ProblemEditor';
 
 export function Review() {
   const { source: encSource = '' } = useParams();
@@ -10,7 +11,7 @@ export function Review() {
   // ?status=rejected → review the user's previous rejections. Default is
   // unreviewed (the fresh review flow).
   const statusFilter = searchParams.get('status') || 'unreviewed';
-  const [queue, setQueue] = useState<ProblemData[] | null>(null);
+  const [queue, setQueue] = useState<TsumegoProblem[] | null>(null);
   const [index, setIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,15 +19,8 @@ export function Review() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(
-          `/api/tsumego/collections/${encodeURIComponent(source)}/problems`,
-          { cache: 'no-store' },
-        );
-        if (!r.ok) throw new Error(r.statusText);
-        const data = await r.json();
-        const filtered = (data.problems as ProblemData[])
-          .filter((p) => p.status === statusFilter);
-        setQueue(filtered);
+        const problems = await api.tsumego.listProblems(source);
+        setQueue(problems.filter((p) => p.status === statusFilter));
         setIndex(0);
       } catch (e) {
         setError(String(e));
@@ -78,6 +72,7 @@ export function Review() {
 
   return (
     <ProblemEditor
+      key={current.id}
       problem={current}
       onDecision={(newStatus) => {
         // Update the queue entry so if the user navigates back to this

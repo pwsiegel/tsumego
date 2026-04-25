@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import type { ProblemData } from './ProblemEditor';
+import { api, type TsumegoProblem } from './api';
 import './Collection.css';
 
 export function Collection() {
   const { source: encSource = '' } = useParams();
   const source = decodeURIComponent(encSource);
   const navigate = useNavigate();
-  const [problems, setProblems] = useState<ProblemData[] | null>(null);
+  const [problems, setProblems] = useState<TsumegoProblem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -15,20 +15,19 @@ export function Collection() {
 
   const refetch = async () => {
     try {
-      const r = await fetch(
-        `/api/tsumego/collections/${encodeURIComponent(source)}/problems`,
-        { cache: 'no-store' },
-      );
-      if (!r.ok) throw new Error(r.statusText);
-      const data = await r.json();
-      setProblems(data.problems);
+      setProblems(await api.tsumego.listProblems(source));
     } catch (e) {
       setError(String(e));
       setProblems([]);
     }
   };
 
-  useEffect(() => { refetch(); }, [source]);
+  useEffect(() => {
+    // refetch() owns its own state writes; the lint rule can't see through.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   const enterSelect = () => {
     setSelecting(true);
@@ -57,9 +56,7 @@ export function Collection() {
     try {
       // Fire the deletes in parallel — each hits its own tsumego_*.json
       // so there's no contention.
-      await Promise.all(
-        ids.map((id) => fetch(`/api/tsumego/${id}`, { method: 'DELETE' })),
-      );
+      await Promise.all(ids.map((id) => api.tsumego.deleteProblem(id)));
       exitSelect();
       await refetch();
     } catch (e) {
@@ -158,7 +155,7 @@ export function Collection() {
               <>
                 <div className="tile-thumb">
                   {p.image ? (
-                    <img src={`/api/tsumego/${p.id}/image.png`} alt="" />
+                    <img src={api.tsumego.imageUrl(p.id)} alt="" />
                   ) : (
                     <div className="tile-noimg">no image</div>
                   )}

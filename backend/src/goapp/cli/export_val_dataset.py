@@ -28,7 +28,10 @@ import shutil
 import time
 from pathlib import Path
 
-from ..paths import TSUMEGO_DIR
+from ..auth import LOCAL_USER_ID
+from ..paths import tsumego_dir
+
+TSUMEGO_DIR = tsumego_dir(LOCAL_USER_ID)
 
 
 def export(source: str, out_dir: Path, prefix: str) -> dict:

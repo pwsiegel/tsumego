@@ -1,78 +1,50 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Board } from './Board';
+import { api, type ComparisonData, type ServerStone } from './api';
 import type { Stone } from './types';
 import './Compare.css';
-
-type ComparisonStone = { col: number; row: number; color: string };
-
-type ComparisonProblem = {
-  stem: string;
-  source_board_idx: number;
-  crop_width: number;
-  crop_height: number;
-  gt: ComparisonStone[];
-  old: ComparisonStone[];
-  new: ComparisonStone[];
-  old_matches_gt: boolean;
-  new_matches_gt: boolean;
-};
-
-type ComparisonData = {
-  val_dir: string;
-  old_model: string;
-  new_model: string;
-  total: number;
-  changed_count: number;
-  problems: ComparisonProblem[];
-};
 
 export function Compare() {
   const { dataset = 'hm2' } = useParams();
   const [data, setData] = useState<ComparisonData | null>(null);
   const [idx, setIdx] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [editedGt, setEditedGt] = useState<ComparisonStone[] | null>(null);
+  const [editedGt, setEditedGt] = useState<ServerStone[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [editCount, setEditCount] = useState<number>(0);
 
   const refreshEditCount = async () => {
     try {
-      const r = await fetch(`/api/val/${dataset}/gt-edits`, { cache: 'no-store' });
-      if (r.ok) {
-        const edits = await r.json();
-        setEditCount(Array.isArray(edits) ? edits.length : 0);
-      }
+      const edits = await api.val.getGtEdits(dataset);
+      setEditCount(edits.length);
     } catch { /* best-effort */ }
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch(`/api/val/${dataset}/comparison`, { cache: 'no-store' });
-        if (!r.ok) throw new Error(r.statusText);
-        setData(await r.json());
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
+    api.val.getComparison(dataset)
+      .then(setData)
+      .catch((e) => setError(String(e)));
+    // refreshEditCount() writes via setState; rule can't see through the helper.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshEditCount();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataset]);
 
-  // Reset any unsaved GT edits when the selected problem changes.
-  useEffect(() => { setEditedGt(null); }, [idx]);
-
-  // Guard nav when there are unsaved GT edits.
-  const maybeNav = (dir: -1 | 1) => {
+  // Guard nav when there are unsaved GT edits, then jump and clear edits.
+  const goToIdx = (next: number) => {
     if (editedGt && !confirm('You have unsaved ground-truth edits. Discard and navigate?')) {
       return;
     }
-    setIdx((i) => {
-      if (!data) return i;
-      if (dir === -1) return Math.max(0, i - 1);
-      return Math.min(data.problems.length - 1, i + 1);
-    });
+    setIdx(next);
+    setEditedGt(null);
+  };
+  const maybeNav = (dir: -1 | 1) => {
+    if (!data) return;
+    const next = dir === -1
+      ? Math.max(0, idx - 1)
+      : Math.min(data.problems.length - 1, idx + 1);
+    if (next !== idx) goToIdx(next);
   };
 
   useEffect(() => {
@@ -94,12 +66,12 @@ export function Compare() {
 
   const p = data.problems[idx];
   const currentGt = editedGt ?? p.gt;
-  const toStones = (ss: ComparisonStone[]): Stone[] =>
+  const toStones = (ss: ServerStone[]): Stone[] =>
     ss.map((s) => ({ x: s.col, y: s.row, color: s.color === 'B' ? 'B' : 'W' }));
 
-  const sameSet = (a: ComparisonStone[], b: ComparisonStone[]): boolean => {
+  const sameSet = (a: ServerStone[], b: ServerStone[]): boolean => {
     if (a.length !== b.length) return false;
-    const key = (s: ComparisonStone) => `${s.col},${s.row},${s.color}`;
+    const key = (s: ServerStone) => `${s.col},${s.row},${s.color}`;
     const A = new Set(a.map(key));
     return b.every((s) => A.has(key(s)));
   };
@@ -111,7 +83,7 @@ export function Compare() {
   const handleGtClick = (x: number, y: number, shift: boolean) => {
     const base = editedGt ?? p.gt;
     const existing = base.find((s) => s.col === x && s.row === y);
-    let next: ComparisonStone[];
+    let next: ServerStone[];
     if (existing) next = base.filter((s) => !(s.col === x && s.row === y));
     else next = [...base, { col: x, row: y, color: shift ? 'W' : 'B' }];
     setEditedGt(next);
@@ -121,18 +93,7 @@ export function Compare() {
     if (!editedGt || !data) return;
     setSaving(true);
     try {
-      const r = await fetch(
-        `/api/val/${dataset}/problems/${p.stem}/stones`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stones: editedGt }),
-        },
-      );
-      if (!r.ok) {
-        const detail = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(detail.detail ?? r.statusText);
-      }
+      await api.val.updateGtStones(dataset, p.stem, editedGt);
       // Update local data to reflect the save: replace gt, recompute matches.
       const oldSet = new Set(p.old.map((s) => `${s.col},${s.row},${s.color}`));
       const newSet = new Set(p.new.map((s) => `${s.col},${s.row},${s.color}`));
@@ -196,7 +157,7 @@ export function Compare() {
             old model: <code>{data.old_model.split('/').pop()}</code> &nbsp;vs&nbsp;
             new model: <code>{data.new_model.split('/').pop()}</code>
             {editCount > 0 && (
-              <> &nbsp;·&nbsp; <a href={`/api/val/${dataset}/gt-edits`} target="_blank" rel="noreferrer">
+              <> &nbsp;·&nbsp; <a href={api.val.gtEditsUrl(dataset)} target="_blank" rel="noreferrer">
                 {editCount} GT {editCount === 1 ? 'edit' : 'edits'} saved
               </a></>
             )}
@@ -215,7 +176,7 @@ export function Compare() {
       <div className="compare-which">
         <select
           value={idx}
-          onChange={(e) => setIdx(parseInt(e.target.value, 10))}
+          onChange={(e) => goToIdx(parseInt(e.target.value, 10))}
         >
           {data.problems.map((prob, i) => (
             <option key={prob.stem} value={i}>
@@ -233,7 +194,7 @@ export function Compare() {
           <div className="compare-label">Original crop</div>
           <img
             className="compare-crop"
-            src={`/api/val/${dataset}/images/${p.stem}.png`}
+            src={api.val.imageUrl(dataset, p.stem)}
             alt={p.stem}
           />
         </div>

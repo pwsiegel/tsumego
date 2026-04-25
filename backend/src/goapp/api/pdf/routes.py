@@ -1,13 +1,17 @@
 """PDF upload, board detection, and discretization endpoints."""
 
 import logging
+import uuid
+from collections.abc import Iterator
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
+from ... import gcs
+from ...auth import user_id_from_request
 from ...ml.board_detect.detect import ModelNotLoaded, detect_boards_yolo
 from ...ml.pipeline import _board_crop, _discretize_board, _page_bboxes
-from ...paths import BBOX_TEST_DIR
+from ...paths import BBOX_TEST_DIR, uploads_dir, uploads_object_key
 from .schemas import (
     BboxDetectResponse,
     BboxUploadResponse,
@@ -15,11 +19,16 @@ from .schemas import (
     BoardDiscretizeLocal,
     BoardListItem,
     BoardListResponse,
+    IngestFromUploadRequest,
+    UploadUrlRequest,
+    UploadUrlResponse,
 )
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pdf", tags=["pdf"])
+
+UserId = Depends(user_id_from_request)
 
 
 @router.post("/bbox-upload", response_model=BboxUploadResponse)
@@ -132,9 +141,8 @@ def board_discretize_endpoint(
     return _discretize_board(page_idx, bbox_idx, peak_thresh)
 
 
-@router.post("/ingest")
-async def pdf_ingest_endpoint(file: UploadFile = File(...)) -> StreamingResponse:
-    """Upload a PDF, run detect+discretize on every board, save each."""
+def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Iterator[str]:
+    """Render pages, detect boards, save each problem; yield NDJSON events."""
     import io
     import json as _json
     import shutil
@@ -142,12 +150,10 @@ async def pdf_ingest_endpoint(file: UploadFile = File(...)) -> StreamingResponse
     import cv2
     import numpy as np
     import pypdfium2 as pdfium
-    from ...tsumego import save_problem, problem_exists
+    from ...tsumego import problem_exists, save_problem
 
-    content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
-    source_name = file.filename or "uploaded.pdf"
     uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     if BBOX_TEST_DIR.exists():
@@ -160,68 +166,128 @@ async def pdf_ingest_endpoint(file: UploadFile = File(...)) -> StreamingResponse
         raise HTTPException(status_code=400, detail=f"invalid PDF: {e}") from e
     total_pages = len(pdf)
 
-    def iter_events():
+    yield _json.dumps({
+        "event": "start", "source": source_name,
+        "uploaded_at": uploaded_at, "total_pages": total_pages,
+    }) + "\n"
+
+    for i, page in enumerate(pdf):
+        pil_img = page.render(scale=2.0).to_pil()
+        img_bgr = np.array(pil_img)[..., ::-1].copy()
+        ok, buf = cv2.imencode(".png", img_bgr)
+        if ok:
+            (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
         yield _json.dumps({
-            "event": "start", "source": source_name,
-            "uploaded_at": uploaded_at, "total_pages": total_pages,
+            "event": "page_rendered", "page": i + 1, "total_pages": total_pages,
         }) + "\n"
 
-        for i, page in enumerate(pdf):
-            pil_img = page.render(scale=2.0).to_pil()
-            img_bgr = np.array(pil_img)[..., ::-1].copy()
-            ok, buf = cv2.imencode(".png", img_bgr)
-            if ok:
-                (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
-            yield _json.dumps({
-                "event": "page_rendered", "page": i + 1, "total_pages": total_pages,
-            }) + "\n"
-
-        total_saved = 0
-        skipped = 0
-        source_board_idx = 0
-        for page_idx in range(total_pages):
-            _, bboxes = _page_bboxes(page_idx)
-            for bbox_idx in range(len(bboxes)):
-                if problem_exists(source_name, source_board_idx):
-                    skipped += 1
-                    source_board_idx += 1
-                    continue
-                try:
-                    d = _discretize_board(page_idx, bbox_idx)
-                    crop, _, _ = _board_crop(page_idx, bbox_idx)
-                    ok, buf = cv2.imencode(".png", crop)
-                    crop_png = buf.tobytes() if ok else None
-                    save_problem(
-                        source=source_name,
-                        uploaded_at=uploaded_at,
-                        source_board_idx=source_board_idx,
-                        stones=[{
-                            "col": s.col, "row": s.row, "color": s.color,
-                        } for s in d.stones],
-                        black_to_play=True,
-                        crop_png=crop_png,
-                        status="unreviewed",
-                        page_idx=page_idx,
-                        bbox_idx=bbox_idx,
-                    )
-                    total_saved += 1
-                except Exception as e:
-                    log.warning("ingest: board %d (page %d bbox %d) failed: %s",
-                                source_board_idx, page_idx, bbox_idx, e)
-                yield _json.dumps({
-                    "event": "board_saved",
-                    "source_board_idx": source_board_idx,
-                    "page_idx": page_idx,
-                    "bbox_idx": bbox_idx,
-                    "total_saved": total_saved,
-                }) + "\n"
+    total_saved = 0
+    skipped = 0
+    source_board_idx = 0
+    for page_idx in range(total_pages):
+        _, bboxes = _page_bboxes(page_idx)
+        for bbox_idx in range(len(bboxes)):
+            if problem_exists(user_id, source_name, source_board_idx):
+                skipped += 1
                 source_board_idx += 1
+                continue
+            try:
+                d = _discretize_board(page_idx, bbox_idx)
+                crop, _, _ = _board_crop(page_idx, bbox_idx)
+                ok, buf = cv2.imencode(".png", crop)
+                crop_png = buf.tobytes() if ok else None
+                save_problem(
+                    user_id=user_id,
+                    source=source_name,
+                    uploaded_at=uploaded_at,
+                    source_board_idx=source_board_idx,
+                    stones=[{
+                        "col": s.col, "row": s.row, "color": s.color,
+                    } for s in d.stones],
+                    black_to_play=True,
+                    crop_png=crop_png,
+                    status="unreviewed",
+                    page_idx=page_idx,
+                    bbox_idx=bbox_idx,
+                )
+                total_saved += 1
+            except Exception as e:
+                log.warning("ingest: board %d (page %d bbox %d) failed: %s",
+                            source_board_idx, page_idx, bbox_idx, e)
+            yield _json.dumps({
+                "event": "board_saved",
+                "source_board_idx": source_board_idx,
+                "page_idx": page_idx,
+                "bbox_idx": bbox_idx,
+                "total_saved": total_saved,
+            }) + "\n"
+            source_board_idx += 1
 
-        yield _json.dumps({
-            "event": "done",
-            "source": source_name,
-            "total_saved": total_saved,
-            "skipped": skipped,
-        }) + "\n"
+    yield _json.dumps({
+        "event": "done",
+        "source": source_name,
+        "total_saved": total_saved,
+        "skipped": skipped,
+    }) + "\n"
 
-    return StreamingResponse(iter_events(), media_type="application/x-ndjson")
+
+@router.post("/ingest")
+async def pdf_ingest_endpoint(
+    file: UploadFile = File(...), user_id: str = UserId,
+) -> StreamingResponse:
+    """Multipart ingest. Used locally; in cloud the file is too large to fit
+    in a single Cloud Run request, so the client uses the signed-URL flow
+    (/upload-url + /ingest-from-upload) instead."""
+    content = await file.read()
+    source_name = file.filename or "uploaded.pdf"
+    return StreamingResponse(
+        _iter_ingest_events(content, source_name, user_id),
+        media_type="application/x-ndjson",
+    )
+
+
+@router.post("/upload-url", response_model=UploadUrlResponse)
+def pdf_upload_url_endpoint(
+    request: UploadUrlRequest,
+    user_id: str = UserId,
+) -> UploadUrlResponse:
+    """Tell the client how to deliver the PDF.
+
+    In cloud (GOAPP_GCS_BUCKET set), returns a signed PUT URL targeting the
+    bucket directly — bypasses Cloud Run's 32 MiB request-body cap. The
+    file lands at a path the FUSE mount can read for ingest. Locally, the
+    client falls back to the multipart endpoint."""
+    del request  # filename only matters for the eventual ingest call
+    if not gcs.is_enabled():
+        return UploadUrlResponse(mode="multipart")
+    upload_id = uuid.uuid4().hex
+    object_key = uploads_object_key(user_id, upload_id)
+    url = gcs.signed_upload_url(object_key)
+    return UploadUrlResponse(mode="signed-url", upload_id=upload_id, url=url)
+
+
+@router.post("/ingest-from-upload")
+def pdf_ingest_from_upload_endpoint(
+    request: IngestFromUploadRequest,
+    user_id: str = UserId,
+) -> StreamingResponse:
+    """Ingest a PDF previously uploaded via signed URL. Reads from the FUSE
+    mount path matching the GCS object key, then deletes the file."""
+    upload_path = uploads_dir(user_id) / f"{request.upload_id}.pdf"
+    if not upload_path.exists():
+        raise HTTPException(status_code=404, detail="upload not found")
+    content = upload_path.read_bytes()
+
+    def iter_events_with_cleanup() -> Iterator[str]:
+        try:
+            yield from _iter_ingest_events(content, request.filename, user_id)
+        finally:
+            try:
+                upload_path.unlink()
+            except FileNotFoundError:
+                pass
+
+    return StreamingResponse(
+        iter_events_with_cleanup(),
+        media_type="application/x-ndjson",
+    )

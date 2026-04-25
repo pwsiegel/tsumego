@@ -1,6 +1,7 @@
 .PHONY: help setup api web dev lint \
        synth train-boards train-stones validate \
-       docker-up docker-down
+       docker-up docker-down \
+       deploy logs
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -70,3 +71,23 @@ docker-up: ## Build and start both services via docker compose
 
 docker-down: ## Stop docker compose services
 	docker compose down
+
+# ---------------------------------------------------------------------------
+# Cloud Run deploy
+# ---------------------------------------------------------------------------
+
+GCP_PROJECT ?= tsumego-pwsiegel
+GCP_REGION  ?= us-central1
+GCP_SERVICE ?= tsumego
+GCP_IMAGE   := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/apps/$(GCP_SERVICE):latest
+
+deploy: ## Build via Cloud Build and roll out to Cloud Run
+	gcloud builds submit --tag $(GCP_IMAGE) --region=$(GCP_REGION) --project=$(GCP_PROJECT) .
+	gcloud run deploy $(GCP_SERVICE) \
+		--image=$(GCP_IMAGE) \
+		--region=$(GCP_REGION) \
+		--project=$(GCP_PROJECT)
+
+logs: ## Tail recent Cloud Run logs (last 50 lines)
+	gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="$(GCP_SERVICE)"' \
+		--project=$(GCP_PROJECT) --limit=50 --format='value(timestamp,textPayload)' --freshness=10m

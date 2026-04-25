@@ -1,16 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api, type Collection } from './api';
 import './Home.css';
-
-type Collection = {
-  source: string;
-  count: number;
-  accepted: number;
-  accepted_edited: number;
-  rejected: number;
-  unreviewed: number;
-  last_uploaded_at: string;
-};
 
 function formatDate(iso: string): string {
   if (!iso) return '';
@@ -22,19 +13,13 @@ function formatDate(iso: string): string {
   });
 }
 
-async function fetchCollections(): Promise<Collection[]> {
-  const r = await fetch('/api/tsumego/collections', { cache: 'no-store' });
-  if (!r.ok) throw new Error(r.statusText);
-  return (await r.json()).collections;
-}
-
 export function Home() {
   const [collections, setCollections] = useState<Collection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);   // source being deleted
 
   useEffect(() => {
-    fetchCollections()
+    api.tsumego.listCollections()
       .then(setCollections)
       .catch((e) => { setError(String(e)); setCollections([]); });
   }, []);
@@ -46,12 +31,8 @@ export function Home() {
     if (!ok) return;
     setBusy(c.source);
     try {
-      const r = await fetch(
-        `/api/tsumego/collections/${encodeURIComponent(c.source)}`,
-        { method: 'DELETE' },
-      );
-      if (!r.ok) throw new Error(r.statusText);
-      const next = await fetchCollections();
+      await api.tsumego.deleteCollection(c.source);
+      const next = await api.tsumego.listCollections();
       setCollections(next);
     } catch (e) {
       setError(`Delete failed: ${e}`);

@@ -1,10 +1,11 @@
 """Save human-accepted tsumego problems as SGF + sidecar metadata.
 
-Each accepted problem is two files under TSUMEGO_DIR:
+Each accepted problem is three files under tsumego_dir(user_id):
     {id}.sgf    SGF with SZ[19], AB/AW setup stones, PL[B] (by default).
     {id}.json   Metadata: source PDF, upload timestamp, source board index,
                 black-to-play flag, plus the stone list for downstream
                 consumers that don't want to parse SGF.
+    {id}.png    The original board crop, when available.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import secrets
 import time
 from pathlib import Path
 
-from .paths import TSUMEGO_DIR
+from .paths import tsumego_dir
 
 
 def _sgf_coord(col: int, row: int) -> str:
@@ -57,14 +58,15 @@ def stones_to_sgf(
     return "".join(parts)
 
 
-def _remove_existing(source: str, source_board_idx: int) -> None:
+def _remove_existing(user_id: str, source: str, source_board_idx: int) -> None:
     """Clear any previously-saved problem for this (source, board_idx).
     Supports toggling a decision: if the user rejects, then navigates
     back and accepts, we replace the old rejected record instead of
     piling up duplicates."""
-    if not TSUMEGO_DIR.exists():
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return
-    for mp in TSUMEGO_DIR.glob("*.json"):
+    for mp in udir.glob("*.json"):
         try:
             d = json.loads(mp.read_text())
         except json.JSONDecodeError:
@@ -76,13 +78,14 @@ def _remove_existing(source: str, source_board_idx: int) -> None:
             mp.unlink(missing_ok=True)
             sgf.unlink(missing_ok=True)
             if png_name:
-                (TSUMEGO_DIR / png_name).unlink(missing_ok=True)
+                (udir / png_name).unlink(missing_ok=True)
 
 
 STATUSES = ("unreviewed", "accepted", "accepted_edited", "rejected")
 
 
 def save_problem(
+    user_id: str,
     source: str,
     uploaded_at: str,
     source_board_idx: int,
@@ -102,8 +105,9 @@ def save_problem(
     """
     if status not in STATUSES:
         raise ValueError(f"unknown status: {status!r}")
-    TSUMEGO_DIR.mkdir(parents=True, exist_ok=True)
-    _remove_existing(source, source_board_idx)
+    udir = tsumego_dir(user_id)
+    udir.mkdir(parents=True, exist_ok=True)
+    _remove_existing(user_id, source, source_board_idx)
 
     stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
     pid = f"tsumego_{stamp}_{secrets.token_hex(3)}"
@@ -114,12 +118,12 @@ def save_problem(
         black_to_play,
         image_ref=f"./{image_filename}" if image_filename else None,
     )
-    sgf_path = TSUMEGO_DIR / f"{pid}.sgf"
-    meta_path = TSUMEGO_DIR / f"{pid}.json"
+    sgf_path = udir / f"{pid}.sgf"
+    meta_path = udir / f"{pid}.json"
 
     sgf_path.write_text(sgf)
     if crop_png is not None:
-        (TSUMEGO_DIR / image_filename).write_bytes(crop_png)
+        (udir / image_filename).write_bytes(crop_png)
     meta_path.write_text(json.dumps({
         "id": pid,
         "source": source,
@@ -138,10 +142,11 @@ def save_problem(
     return sgf_path
 
 
-def problem_exists(source: str, source_board_idx: int) -> bool:
-    if not TSUMEGO_DIR.exists():
+def problem_exists(user_id: str, source: str, source_board_idx: int) -> bool:
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return False
-    for mp in TSUMEGO_DIR.glob("*.json"):
+    for mp in udir.glob("*.json"):
         try:
             d = json.loads(mp.read_text())
         except json.JSONDecodeError:
@@ -152,10 +157,11 @@ def problem_exists(source: str, source_board_idx: int) -> bool:
     return False
 
 
-def load_problem(problem_id: str) -> dict | None:
-    if not TSUMEGO_DIR.exists():
+def load_problem(user_id: str, problem_id: str) -> dict | None:
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return None
-    mp = TSUMEGO_DIR / f"{problem_id}.json"
+    mp = udir / f"{problem_id}.json"
     if not mp.exists():
         return None
     try:
@@ -164,12 +170,13 @@ def load_problem(problem_id: str) -> dict | None:
         return None
 
 
-def list_problems(source: str) -> list[dict]:
+def list_problems(user_id: str, source: str) -> list[dict]:
     """Return every problem belonging to `source`, sorted by source_board_idx."""
-    if not TSUMEGO_DIR.exists():
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return []
     out: list[dict] = []
-    for mp in TSUMEGO_DIR.glob("*.json"):
+    for mp in udir.glob("*.json"):
         try:
             d = json.loads(mp.read_text())
         except json.JSONDecodeError:
@@ -182,6 +189,7 @@ def list_problems(source: str) -> list[dict]:
 
 
 def update_problem(
+    user_id: str,
     problem_id: str,
     status: str | None = None,
     stones: list[dict] | None = None,
@@ -190,7 +198,7 @@ def update_problem(
     """Rewrite a problem's status / stones / black_to_play in place.
     Rewrites the SGF when stones or black_to_play change. Returns the
     updated metadata dict or None if no such problem."""
-    meta = load_problem(problem_id)
+    meta = load_problem(user_id, problem_id)
     if meta is None:
         return None
     if status is not None:
@@ -207,6 +215,7 @@ def update_problem(
     if black_to_play is not None:
         meta["black_to_play"] = black_to_play
         sgf_dirty = True
+    udir = tsumego_dir(user_id)
     if sgf_dirty:
         image_filename = meta.get("image")
         new_sgf = stones_to_sgf(
@@ -214,22 +223,23 @@ def update_problem(
             meta.get("black_to_play", True),
             image_ref=f"./{image_filename}" if image_filename else None,
         )
-        (TSUMEGO_DIR / f"{problem_id}.sgf").write_text(new_sgf)
-    (TSUMEGO_DIR / f"{problem_id}.json").write_text(json.dumps(meta, indent=2))
+        (udir / f"{problem_id}.sgf").write_text(new_sgf)
+    (udir / f"{problem_id}.json").write_text(json.dumps(meta, indent=2))
     return meta
 
 
-def list_collections() -> list[dict]:
+def list_collections(user_id: str) -> list[dict]:
     """Aggregate saved problems by source PDF.
 
     Returns a list of {source, count, last_uploaded_at}, one entry per
     distinct source PDF name, sorted by most recent upload first. Later
     this will back the home screen's "Collections" list.
     """
-    if not TSUMEGO_DIR.exists():
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return []
     groups: dict[str, dict] = {}
-    for mp in TSUMEGO_DIR.glob("*.json"):
+    for mp in udir.glob("*.json"):
         try:
             d = json.loads(mp.read_text())
         except json.JSONDecodeError:
@@ -258,11 +268,12 @@ def list_collections() -> list[dict]:
     return out
 
 
-def delete_problem(problem_id: str) -> bool:
+def delete_problem(user_id: str, problem_id: str) -> bool:
     """Delete one problem's SGF + JSON + image PNG. Returns True if found."""
-    if not TSUMEGO_DIR.exists():
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return False
-    mp = TSUMEGO_DIR / f"{problem_id}.json"
+    mp = udir / f"{problem_id}.json"
     if not mp.exists():
         return False
     try:
@@ -271,21 +282,22 @@ def delete_problem(problem_id: str) -> bool:
         d = {}
     image = d.get("image")
     mp.unlink(missing_ok=True)
-    (TSUMEGO_DIR / f"{problem_id}.sgf").unlink(missing_ok=True)
+    (udir / f"{problem_id}.sgf").unlink(missing_ok=True)
     if image:
-        (TSUMEGO_DIR / image).unlink(missing_ok=True)
+        (udir / image).unlink(missing_ok=True)
     return True
 
 
-def delete_collection(source: str) -> int:
+def delete_collection(user_id: str, source: str) -> int:
     """Delete every SGF + metadata pair whose metadata source matches.
 
     Returns the number of problems removed.
     """
-    if not TSUMEGO_DIR.exists():
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
         return 0
     removed = 0
-    for mp in TSUMEGO_DIR.glob("*.json"):
+    for mp in udir.glob("*.json"):
         try:
             d = json.loads(mp.read_text())
         except json.JSONDecodeError:

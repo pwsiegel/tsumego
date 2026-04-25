@@ -1,13 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { api } from './api';
 import './Upload.css';
-
-type IngestEvent =
-  | { event: 'start'; source: string; uploaded_at: string; total_pages: number }
-  | { event: 'page_rendered'; page: number; total_pages: number }
-  | { event: 'board_saved'; source_board_idx: number; page_idx: number; bbox_idx: number; total_saved: number }
-  | { event: 'done'; source: string; total_saved: number; skipped: number }
-  | { event: 'error'; detail: string };
 
 export function Upload() {
   const navigate = useNavigate();
@@ -31,7 +25,7 @@ export function Upload() {
     setSource(null);
 
     try {
-      await streamIngest(file, (frac) => setUploadFrac(frac), (ev) => {
+      await api.pdf.streamIngest(file, (frac) => setUploadFrac(frac), (ev) => {
         if (ev.event === 'start') {
           setTotalPages(ev.total_pages);
           setSource(ev.source);
@@ -140,49 +134,4 @@ export function Upload() {
       </div>
     </div>
   );
-}
-
-
-/**
- * Upload a file to /api/pdf/ingest and consume the NDJSON streaming body,
- * calling `onProgress` with the upload fraction during the request body
- * and `onEvent` for each parsed server event.
- */
-function streamIngest(
-  file: File,
-  onProgress: (frac: number) => void,
-  onEvent: (ev: IngestEvent) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append('file', file, file.name);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/pdf/ingest');
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded / e.total);
-    };
-    // XHR gives us responseText incrementally. Parse as NDJSON.
-    let offset = 0;
-    xhr.onprogress = () => {
-      const text = xhr.responseText ?? '';
-      while (true) {
-        const nl = text.indexOf('\n', offset);
-        if (nl === -1) break;
-        const line = text.slice(offset, nl).trim();
-        offset = nl + 1;
-        if (!line) continue;
-        try {
-          onEvent(JSON.parse(line) as IngestEvent);
-        } catch {
-          // ignore unparseable lines
-        }
-      }
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(xhr.statusText || `HTTP ${xhr.status}`));
-    };
-    xhr.onerror = () => reject(new Error('network error'));
-    xhr.send(form);
-  });
 }

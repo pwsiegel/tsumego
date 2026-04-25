@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ProblemEditor, type ProblemData } from './ProblemEditor';
+import { api, type TsumegoProblem } from './api';
+import { ProblemEditor } from './ProblemEditor';
 
 /** Single-problem editor, reached by clicking a tile on the collection
  * page. After a decision, navigate back to the collection list. */
@@ -8,19 +9,13 @@ export function ProblemDetail() {
   const { source: encSource = '', id = '' } = useParams();
   const source = decodeURIComponent(encSource);
   const navigate = useNavigate();
-  const [problem, setProblem] = useState<ProblemData | null>(null);
+  const [problem, setProblem] = useState<TsumegoProblem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch(`/api/tsumego/${id}`, { cache: 'no-store' });
-        if (!r.ok) throw new Error(r.statusText);
-        setProblem(await r.json());
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
+    api.tsumego.getProblem(id)
+      .then(setProblem)
+      .catch((e) => setError(String(e)));
   }, [id]);
 
   const backToCollection = () => navigate(`/collections/${encodeURIComponent(source)}`);
@@ -39,6 +34,7 @@ export function ProblemDetail() {
 
   return (
     <ProblemEditor
+      key={problem.id}
       problem={problem}
       onDecision={() => backToCollection()}
       onExit={backToCollection}

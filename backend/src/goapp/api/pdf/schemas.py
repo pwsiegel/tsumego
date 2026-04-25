@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -61,3 +63,24 @@ class BoardDiscretizeLocal(BaseModel):
     row_min: int
     edges: dict[str, bool]
     stones: list[DiscretizedStoneOut]
+
+
+class UploadUrlRequest(BaseModel):
+    filename: str
+
+
+class UploadUrlResponse(BaseModel):
+    """Where the client should send the PDF.
+
+    `signed-url`: PUT the file to `url` with Content-Type `application/pdf`,
+    then call `/api/pdf/ingest-from-upload` with `upload_id`.
+    `multipart`: POST the file to `/api/pdf/ingest` (legacy, local-only).
+    """
+    mode: Literal["signed-url", "multipart"]
+    upload_id: str | None = None
+    url: str | None = None
+
+
+class IngestFromUploadRequest(BaseModel):
+    upload_id: str
+    filename: str

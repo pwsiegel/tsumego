@@ -1,0 +1,45 @@
+.health-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+
+.health-card {
+  text-align: center;
+  padding: 2rem 3rem;
+  max-width: 28rem;
+}
+
+.health-card h1 {
+  font-size: 1.25rem;
+  margin: 1rem 0 0.5rem;
+  font-weight: 500;
+}
+
+.health-detail {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.health-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto;
+  border: 3px solid #e0e0e0;
+  border-top-color: #555;
+  border-radius: 50%;
+  animation: health-spin 0.9s linear infinite;
+}
+
+.health-spinner.degraded {
+  animation: none;
+  border: 3px solid #c62828;
+  border-radius: 4px;
+}
+
+@keyframes health-spin {
+  to { transform: rotate(360deg); }
+}
