@@ -5,9 +5,13 @@ Interactive workbook for annotating Go problems: import from PDF, detect the boa
 ## Layout
 
 ```
-go-app/
+tsumego/
 ├── web/                React + TypeScript + Vite frontend
-├── api/                FastAPI backend (PDF ingestion, detection, training)
+├── backend/            FastAPI backend (PDF ingestion, detection, training)
+│   ├── src/goapp/api/  Route handlers, split by domain
+│   ├── src/goapp/ml/   ML modules (board/stone/edge detection, pitch, discretization)
+│   ├── src/goapp/cli/  CLI tools (validation, comparison, dataset export)
+│   └── src/goapp/synth/ Synthetic data generation for training
 └── docker-compose.yml  Local dev: brings up both
 ```
 
@@ -17,9 +21,9 @@ Two terminals:
 
 ```bash
 # backend (port 8001)
-cd api
+cd backend
 uv sync
-uv run uvicorn goapp_api.main:app --reload --port 8001
+uv run uvicorn goapp.api:app --reload --port 8001
 ```
 
 ```bash

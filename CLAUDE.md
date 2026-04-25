@@ -6,13 +6,13 @@
 
 # Scope of autonomy
 
-- Inside this project folder (`/Users/paul/pwsiegel/go-app`): do whatever you want. Install, delete, refactor, run scripts. Nothing here is precious.
+- Inside this project folder (`/Users/paul/pwsiegel/tsumego`): do whatever you want. Install, delete, refactor, run scripts. Nothing here is precious.
 - Outside this folder (the rest of the computer, system settings, other projects, shell/user config): ask first.
 - Web search is fine for project-related research. No sketchy sites — stick to reputable docs, official repos, and established sources.
 
 # Project layout
 
 - `web/` — React + TS + Vite frontend. Dev server on :5173. Vite proxies `/api/*` to the backend.
-- `api/` — FastAPI backend managed by `uv`. Dev server on :8001 (not 8000 — something else on this machine owns 8000). Run: `uv --directory api run uvicorn goapp_api.main:app --reload --port 8001`.
+- `backend/` — FastAPI backend managed by `uv`. Dev server on :8001 (not 8000 — something else on this machine owns 8000). Run: `uv --directory backend run uvicorn goapp.api:app --reload --port 8001`.
 - `docker-compose.yml` — brings up both (web on :8080, api on :8001) for integration-style local dev.
 - Deployment target: Cloudflare Pages (frontend) + Cloud Run (backend).
