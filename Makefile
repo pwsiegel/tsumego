@@ -1,7 +1,9 @@
 .PHONY: help setup api web dev lint \
        synth train-boards train-stones validate \
        docker-up docker-down \
-       deploy logs
+       deploy logs \
+       sync-synth build-training-image \
+       train-cloud-boards train-cloud-stones pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -91,3 +93,38 @@ deploy: ## Build via Cloud Build and roll out to Cloud Run
 logs: ## Tail recent Cloud Run logs (last 50 lines)
 	gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="$(GCP_SERVICE)"' \
 		--project=$(GCP_PROJECT) --limit=50 --format='value(timestamp,textPayload)' --freshness=10m
+
+# ---------------------------------------------------------------------------
+# Vertex AI training (L4 spot)
+# ---------------------------------------------------------------------------
+
+GCP_BUCKET         := $(GCP_PROJECT)-data
+GCP_TRAINING_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/apps/training:latest
+SYNTH_LOCAL_DIR    := $(HOME)/data/go-app/data/synth_pages
+SYNTH_GCS_DIR      := gs://$(GCP_BUCKET)/data/synth_pages
+MODELS_GCS_DIR     := gs://$(GCP_BUCKET)/data/models
+
+sync-synth: ## Upload local synth_pages/ to GCS (run after `make synth`)
+	gsutil -m rsync -d -r $(SYNTH_LOCAL_DIR) $(SYNTH_GCS_DIR)
+
+build-training-image: ## Build the CUDA training image via Cloud Build
+	gcloud builds submit \
+		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
+		--config=training/cloudbuild.yaml \
+		--substitutions=_IMAGE=$(GCP_TRAINING_IMAGE) .
+
+train-cloud-boards: ## Submit board-detector training to Vertex (L4 spot)
+	gcloud ai custom-jobs create \
+		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
+		--display-name=board-detector-$(shell date +%Y%m%d-%H%M%S) \
+		--config=training/job-boards.yaml
+
+train-cloud-stones: ## Submit stone-detector training to Vertex (L4 spot)
+	gcloud ai custom-jobs create \
+		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
+		--display-name=stone-detector-$(shell date +%Y%m%d-%H%M%S) \
+		--config=training/job-stones.yaml
+
+pull-weights: ## Copy trained weights from GCS into backend/data/models/
+	gsutil cp $(MODELS_GCS_DIR)/board_detector.pt backend/data/models/
+	gsutil cp $(MODELS_GCS_DIR)/stone_detector.pt backend/data/models/

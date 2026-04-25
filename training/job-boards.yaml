@@ -1,0 +1,17 @@
+workerPoolSpecs:
+  - machineSpec:
+      machineType: g2-standard-4
+      acceleratorType: NVIDIA_L4
+      acceleratorCount: 1
+    replicaCount: 1
+    diskSpec:
+      bootDiskType: pd-ssd
+      bootDiskSizeGb: 100
+    containerSpec:
+      imageUri: us-central1-docker.pkg.dev/tsumego-pwsiegel/apps/training:latest
+      args:
+        - boards
+serviceAccount: tsumego-runtime@tsumego-pwsiegel.iam.gserviceaccount.com
+scheduling:
+  strategy: SPOT
+  restartJobOnWorkerRestart: true
