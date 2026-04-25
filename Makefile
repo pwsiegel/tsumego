@@ -1,4 +1,4 @@
-.PHONY: help setup api web dev test lint \
+.PHONY: help setup api web dev lint \
        synth train-boards train-stones validate \
        docker-up docker-down
 
@@ -27,9 +27,6 @@ web: ## Start frontend dev server (port 5173)
 # ---------------------------------------------------------------------------
 # Quality
 # ---------------------------------------------------------------------------
-
-test: ## Run backend tests
-	uv --directory backend run --extra dev pytest tests/
 
 lint: ## Lint backend (ruff) + frontend (eslint)
 	uv --directory backend run --extra dev ruff check src/

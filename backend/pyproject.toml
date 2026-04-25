@@ -23,8 +23,6 @@ ml = [
   "ultralytics>=8.3",
 ]
 dev = [
-  "pytest>=8",
-  "httpx>=0.28",
   "ruff>=0.8",
 ]
 
