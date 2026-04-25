@@ -1,51 +1,234 @@
 # Go Problem Workbook
 
-Interactive workbook for annotating Go problems: import from PDF, detect the board position, work out the solution as a numbered move sequence.
+Extract Go problems from scanned PDFs of tsumego books, build a per-user library,
+and (eventually) train against them with engine assistance.
 
-## Layout
+The pipeline ingests a PDF page-by-page, finds the board diagrams, reads off the
+stones, and saves each problem as SGF + metadata + the original board crop.
+
+## What it can do
+
+### Frontend (`web/`, React + TypeScript + Vite)
+
+User-facing pages:
+
+| Route | What it does |
+|---|---|
+| `/` | Landing page; lists previously-ingested PDF collections. |
+| `/upload` | Upload a PDF. Streams ingest progress (page rendered → board saved). |
+| `/collections/:source` | Grid of every problem extracted from one PDF. |
+| `/collections/:source/review` | Sequentially review unreviewed problems; accept / reject / edit. |
+| `/collections/:source/problem/:id` | Single problem: SGF view, edit stones, change status. |
+
+Developer tools (under `/testing/…`):
+
+| Route | What it does |
+|---|---|
+| `/testing/bbox` | Visualize YOLO board-bbox detection on each PDF page. |
+| `/testing/stones` | Visualize stone detection + grid discretization for one board. |
+| `/testing/validate/:dataset` | Run the full pipeline against a labeled validation set; inspect mistakes side-by-side. |
+| `/compare/:dataset` | Side-by-side compare of detector output vs. ground truth. |
+
+A `HealthGate` covers the app on cold start and polls `/api/health` until
+the YOLO models have finished warming, so the first request never lands
+mid-warmup.
+
+### Backend (`backend/`, FastAPI + ultralytics + opencv)
+
+| Group | Endpoints (selected) | Purpose |
+|---|---|---|
+| `/api/health` | `GET /api/health` | Liveness + model-warm status (drives the cold-start gate). |
+| `/api/pdf` | `POST /upload-url`, `POST /ingest-from-upload`, `POST /ingest`, `GET /boards`, `GET /board-crop/...`, `GET /board-discretize/...` | PDF upload + ingest. In cloud, `upload-url` returns a signed PUT to GCS to bypass Cloud Run's 32 MiB request cap; `ingest-from-upload` then streams NDJSON progress (`page_rendered`, `board_saved`, `done`) as it processes. The `bbox-*` and `boards` endpoints back the developer tools. |
+| `/api/tsumego` | `GET /collections`, `POST /save`, `GET /{id}`, `POST /{id}/status`, `DELETE /{id}` | Per-user library CRUD. Storage is plain files (SGF + JSON sidecar + PNG crop) under `data/tsumego/{user_id}/`. |
+| `/api/val` | `GET /{dataset}/comparison`, `POST /{dataset}/problems/{stem}/stones`, `GET /{dataset}/run` | Validation tooling for the developer pages. |
+
+Identity comes from IAP (header `X-Goog-Authenticated-User-Email`) in the
+cloud and a constant `local-dev` user locally.
+
+## How it works
+
+### Models (trained)
+
+Both are YOLOv8-nano fine-tunes (ultralytics). They're trained on
+synthetic data only — no labeled real-world scans needed.
+
+- **Board detector** (`backend/data/models/board_detector.pt`).
+  Single class `board`. Input: a full PDF page rendered at 2× scale.
+  Output: bounding boxes around every Go diagram on the page.
+  Trained on whole synthetic pages.
+
+- **Stone detector** (`backend/data/models/stone_detector.pt`).
+  Two classes: `B` (black), `W` (white). Input: a single board crop
+  (output of the board detector, padded by 10 px). Output: bbox per
+  stone; we take centers. Trained on per-board crops cut out of the
+  same synthetic pages.
+
+Hoshi (star points) are rendered into the synthetic boards but
+**not labeled** as stones — the model learns to treat them as background.
+
+### Classical algorithms (no training)
+
+These run after stone detection to convert pixel positions into a 19×19
+board state. Living under `backend/src/goapp/ml/` even though they aren't
+ML — kept there as part of the detection pipeline.
+
+- **Edge detection** (`edge_detect/`). For each side of a board crop,
+  decides whether that side is a real frame line (the outer 19th line)
+  or an interior grid row/column near the crop edge. Method: adaptive
+  threshold → 1D dark-pixel-density profile across a strip near that
+  side → score the outermost peak as frame-like vs. grid-like (uses
+  thickness-ratio and darkness-delta vs. the next interior peak).
+
+- **Pitch measurement** (`pitch/`). Measures the grid cell size in pixels
+  by finding the distance between the frame line and the first interior
+  grid line on each confirmed-frame side, then takes the median. Works
+  directly off the printed grid, not off detected stones.
+
+- **Discretization** (`discretize/`). Given stone centers (from the
+  stone CNN) plus the 4-bit edge classifier output, computes:
+  `cell_size` (25th percentile of pairwise stone distances within a
+  plausible pitch range — a robust nearest-neighbor estimate),
+  `origin_x/y` (brute-force search in `[0, cell_size)` minimizing snap
+  residual), and the position of the visible window inside the full
+  19×19 board. Edge flags disambiguate which corner/edge of the board
+  the crop covers.
+
+The pipeline (`ml/pipeline.py`) ties these together: YOLO board → crop →
+stone YOLO + classical geometry → discretized 19×19 position.
+
+### Synthetic data (`backend/src/goapp/synth/`)
+
+Generated pages are the only training input.
+
+- `board_render.py` — draws Go boards (random size cropping, hoshi,
+  stones randomly placed, optional move-number labels, multiple board
+  themes).
+- `page_compose.py` — lays one or more boards on a page with random text
+  blocks, in multiple languages (mimics tsumego book pages).
+- `degrade.py` — simulates scan artifacts: blur, noise, JPEG-compression
+  artifacts, slight rotation, off-white paper tint.
+- `gen.py` — entry point. Each generated page produces a `.png` and a
+  `.json` (board bboxes + per-stone positions + edge flags).
+
+Defaults to 1500 pages (`make synth` runs `--count 1500`). Generation is
+CPU-bound, no GPU needed; ~5 minutes on a recent Mac.
+
+## Repo layout
 
 ```
 tsumego/
-├── web/                React + TypeScript + Vite frontend
-├── backend/            FastAPI backend (PDF ingestion, detection, training)
-│   ├── src/goapp/api/  Route handlers, split by domain
-│   ├── src/goapp/ml/   ML modules (board/stone/edge detection, pitch, discretization)
-│   ├── src/goapp/cli/  CLI tools (validation, comparison, dataset export)
-│   └── src/goapp/synth/ Synthetic data generation for training
-└── docker-compose.yml  Local dev: brings up both
+├── web/                   React + TS + Vite frontend
+├── backend/
+│   ├── data/models/       Trained .pt weights baked into the serving image
+│   └── src/goapp/
+│       ├── api/           FastAPI routers (health, pdf, tsumego, val)
+│       ├── ml/            Detection + classical-geometry pipeline
+│       ├── cli/           Validation runner, dataset export, comparison
+│       └── synth/         Synthetic page generator
+├── training/              Vertex AI training image + job specs
+├── Dockerfile             Serving image (Cloud Run)
+├── Makefile               All common tasks
+└── docker-compose.yml     Local containerized dev
 ```
 
-## Local dev
+## Getting started
+
+### Prerequisites
+
+- **Python 3.11+** and [uv](https://docs.astral.sh/uv/)
+- **Node 18+**
+- **Trained model weights** at `backend/data/models/board_detector.pt` and
+  `backend/data/models/stone_detector.pt`. Without these, the app boots
+  but ingest will return 503s.
+  - If you have them locally at `~/data/go-app/models/`, copy them in:
+    `cp ~/data/go-app/models/{board,stone}_detector.pt backend/data/models/`
+  - Otherwise, train them (see "Train models" below) or pull from GCS:
+    `make pull-weights`.
+- (Optional, training only) **Local data dir**, default `~/data/go-app/`:
+  ```
+  ~/data/go-app/
+  ├── data/
+  │   ├── synth_pages/    Generated training pages (PNG + JSON)
+  │   └── val/<dataset>/  Labeled validation sets, if you have them
+  └── models/             Locally-trained .pt outputs
+  ```
+  Override the location with `GOAPP_DATA_DIR=/path/to/dir`.
+
+### First-time setup
+
+```bash
+make setup    # uv sync --extra ml --extra dev + npm install
+```
+
+### Run the app
 
 Two terminals:
 
 ```bash
-# backend (port 8001)
-cd backend
-uv sync
-uv run uvicorn goapp.api:app --reload --port 8001
+make api      # backend on http://localhost:8001
+make web      # frontend on http://localhost:5173 (proxies /api → :8001)
 ```
+
+Or one container:
 
 ```bash
-# frontend (port 5173; proxies /api → backend)
-cd web
-npm install
-npm run dev
+make docker-up  # frontend + backend on http://localhost:8080
 ```
 
-Open http://localhost:5173.
+## Common tasks
 
-Or with Docker:
+All driven by `make help`.
+
+### Generate synthetic training data
 
 ```bash
-docker compose up --build
-# frontend on :8080, backend on :8001
+make synth                       # writes 1500 pages to ~/data/go-app/data/synth_pages/
 ```
 
-## Deployment target
+### Train models locally (Mac M-series)
 
-Intended: Cloudflare Pages (static frontend) + Cloud Run (containerized backend).
-See individual service Dockerfiles.
+```bash
+make train-boards                # ~10 min on MPS
+make train-stones                # ~20-30 min on MPS; set DEVICE=cpu if no GPU
+```
+
+Outputs land at `~/data/go-app/models/{board,stone}_detector.pt`. Copy
+them into `backend/data/models/` to bake into the next serving build.
+
+### Train models on Vertex AI (L4 spot, ~$0.15-0.30 per run)
+
+Requires GCP setup (Cloud Run / GCS / IAP already provisioned — see
+`training/job-*.yaml` for project + bucket names).
+
+```bash
+make sync-synth                  # local synth_pages → gs://...-data/data/synth_pages
+make build-training-image        # one-time per Dockerfile change
+make train-cloud-boards          # or train-cloud-stones; submits job and exits
+# … watch progress at https://console.cloud.google.com/vertex-ai/training
+make pull-weights                # GCS → backend/data/models/
+make deploy                      # rebuild + roll out serving image with new weights
+```
+
+The training entrypoint reads `synth_pages` from the GCS FUSE mount and
+keeps derived YOLO datasets / ultralytics run artifacts on local
+container disk (FUSE writes are slow). Only the final `best.pt` is
+copied back to the bucket.
+
+### Validate against a labeled dataset
+
+```bash
+make validate DATASET=hm2        # prints per-problem comparison report
+```
+
+Open `/testing/validate/hm2` in the frontend for a side-by-side visual
+of detector output vs. ground truth.
+
+### Deploy to Cloud Run
+
+```bash
+make deploy                      # Cloud Build → gcr → Cloud Run rollout
+make logs                        # last 50 lines of Cloud Run logs
+```
 
 ## Roadmap
 
@@ -95,5 +278,4 @@ Open infra question: bundle KataGo (adds ~100MB and a C++ dependency) vs. run it
 
 ### Infra / deploy
 - [ ] CI: typecheck + test on PR.
-- [ ] Deploy frontend to Cloudflare Pages.
-- [ ] Deploy backend to Cloud Run.
+- [ ] **Background ingest worker** — PDF rendering + board detection currently runs synchronously inside the upload request and is slow on Cloud Run's 2 vCPU. Move to Cloud Run Jobs or a Pub/Sub-driven worker so the user isn't blocked while a book ingests.

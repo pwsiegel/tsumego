@@ -27,7 +27,6 @@ web/dist-ssr
 # Docs and CI (not needed in the image)
 docs
 README.md
-TRAINING.md
 docker-compose.yml
 Makefile
 
