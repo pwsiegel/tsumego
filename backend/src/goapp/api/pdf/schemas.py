@@ -65,6 +65,21 @@ class BoardDiscretizeLocal(BaseModel):
     stones: list[DiscretizedStoneOut]
 
 
+class BoardGridDetect(BaseModel):
+    """Raw output of the grid-geometry regressor for one bbox."""
+    page_idx: int
+    bbox_idx: int
+    crop_width: int
+    crop_height: int
+    grid_x0: float
+    grid_y0: float
+    grid_x1: float
+    grid_y1: float
+    pitch_x: float
+    pitch_y: float
+    edges: dict[str, bool]
+
+
 class UploadUrlRequest(BaseModel):
     filename: str
 

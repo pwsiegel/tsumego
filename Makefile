@@ -123,7 +123,9 @@ modal-train-stones: ## Train the stone detector on Modal (L4)
 modal-train-grid: ## Train the grid detector on Modal (L4)
 	modal run training/modal_train.py::train_grid
 
-modal-pull-weights: ## Copy trained weights from the Modal volume into backend/data/models/
-	modal volume get --force $(MODAL_VOLUME) /models/board_detector.pt backend/data/models/
-	modal volume get --force $(MODAL_VOLUME) /models/stone_detector.pt backend/data/models/
-	modal volume get --force $(MODAL_VOLUME) /models/grid_detector.pt backend/data/models/
+modal-pull-weights: ## Copy trained weights from the Modal volume into backend/data/models/ (skips any not yet on the volume)
+	@for f in board_detector.pt stone_detector.pt grid_detector.pt; do \
+		echo "==> $$f"; \
+		modal volume get --force $(MODAL_VOLUME) /models/$$f backend/data/models/ \
+			|| echo "   (skipped — not on volume)"; \
+	done

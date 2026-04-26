@@ -34,8 +34,12 @@ from torchvision.transforms import functional as TF
 
 IMG_SIZE = 224
 
+# Real YOLO board crops at inference time include large amounts of context
+# (row/column labels, "problem N" captions, page margin). When jitter was
+# tight (≤25 px) the model learned a shortcut: "the grid bbox covers most
+# of the crop." Loose jitter forces it to find the actual grid lines.
 JITTER_MIN_PX = 0
-JITTER_MAX_PX = 25
+JITTER_MAX_PX = 200
 
 WARP_PROB = 0.6
 WARP_MAX_DEG = 3.0          # rotation, mimics scan tilt

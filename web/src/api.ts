@@ -105,6 +105,20 @@ export type BoardDiscretize = {
   stones: DiscretizedStone[];
 };
 
+export type BoardGridDetect = {
+  page_idx: number;
+  bbox_idx: number;
+  crop_width: number;
+  crop_height: number;
+  grid_x0: number;
+  grid_y0: number;
+  grid_x1: number;
+  grid_y1: number;
+  pitch_x: number;
+  pitch_y: number;
+  edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
+};
+
 // Streaming ingest events from `/api/pdf/ingest` (NDJSON body).
 export type IngestEvent =
   | { event: 'start'; source: string; uploaded_at: string; total_pages: number }
@@ -343,6 +357,12 @@ export const api = {
     discretizeBoard(pageIdx: number, bboxIdx: number, peakThresh: number): Promise<BoardDiscretize> {
       return request<BoardDiscretize>(
         `/api/pdf/board-discretize/${pageIdx}/${bboxIdx}?peak_thresh=${peakThresh}&${bust()}`,
+        NO_STORE,
+      );
+    },
+    detectGrid(pageIdx: number, bboxIdx: number): Promise<BoardGridDetect> {
+      return request<BoardGridDetect>(
+        `/api/pdf/board-grid/${pageIdx}/${bboxIdx}?${bust()}`,
         NO_STORE,
       );
     },

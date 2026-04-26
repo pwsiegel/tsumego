@@ -10,6 +10,7 @@ from fastapi.responses import Response, StreamingResponse
 from ... import gcs
 from ...auth import user_id_from_request
 from ...ml.board_detect.detect import ModelNotLoaded, detect_boards_yolo
+from ...ml.grid_detect.infer import GridModelNotLoaded, detect_grid
 from ...ml.pipeline import _board_crop, _discretize_board, _page_bboxes
 from ...paths import BBOX_TEST_DIR, uploads_dir, uploads_object_key
 from .schemas import (
@@ -17,6 +18,7 @@ from .schemas import (
     BboxUploadResponse,
     BoardBBoxOut,
     BoardDiscretizeLocal,
+    BoardGridDetect,
     BoardListItem,
     BoardListResponse,
     IngestFromUploadRequest,
@@ -139,6 +141,25 @@ def board_discretize_endpoint(
 ) -> BoardDiscretizeLocal:
     """End-to-end pipeline for a single bbox."""
     return _discretize_board(page_idx, bbox_idx, peak_thresh)
+
+
+@router.get("/board-grid/{page_idx}/{bbox_idx}", response_model=BoardGridDetect)
+def board_grid_endpoint(page_idx: int, bbox_idx: int) -> BoardGridDetect:
+    """Raw grid-geometry regressor output for a single bbox (dev tool)."""
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    h, w = crop.shape[:2]
+    try:
+        g = detect_grid(crop)
+    except GridModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    gx0, gy0, gx1, gy1 = g.grid_bbox
+    return BoardGridDetect(
+        page_idx=page_idx, bbox_idx=bbox_idx,
+        crop_width=w, crop_height=h,
+        grid_x0=gx0, grid_y0=gy0, grid_x1=gx1, grid_y1=gy1,
+        pitch_x=g.pitch_x, pitch_y=g.pitch_y,
+        edges=g.edges,
+    )
 
 
 def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Iterator[str]:

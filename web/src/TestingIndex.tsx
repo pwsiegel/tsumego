@@ -17,6 +17,13 @@ export function TestingIndex() {
           </span>
         </li>
         <li>
+          <Link to="/testing/grid">Grid geometry detection</Link>
+          <span className="desc">
+            Step through detected boards and see the grid regressor's
+            predicted bbox, pitch, and edges drawn over each crop.
+          </span>
+        </li>
+        <li>
           <Link to="/testing/stones">Stone detection + discretization</Link>
           <span className="desc">
             Upload a PDF, step through every detected board, and see the
