@@ -46,7 +46,13 @@ data_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("libgl1", "libglib2.0-0")
+    .apt_install(
+        "libgl1", "libglib2.0-0",
+        # Fonts the synth generator's text_sources.py expects on Linux:
+        # noto-cjk covers ko/ja/zh; liberation provides the Times/Helvetica
+        # equivalents used for Latin scripts.
+        "fonts-noto-cjk", "fonts-liberation",
+    )
     .pip_install(
         "ultralytics>=8.3",
         "torch>=2.5",
@@ -73,6 +79,24 @@ def _run(*args: str) -> None:
     """Run a goapp training module and surface its output live."""
     print("+", " ".join(args), flush=True)
     subprocess.run(args, check=True)
+
+
+@app.function(
+    image=image,
+    volumes={VOLUME_MOUNT: data_volume},
+    cpu=4,
+    timeout=60 * 30,
+)
+def gen_synth(count: int = 1500) -> None:
+    """Wipe and regenerate the synth_pages dataset on the volume."""
+    import shutil
+    pages_dir = Path(f"{VOLUME_MOUNT}/data/synth_pages")
+    if pages_dir.exists():
+        print(f"removing existing {pages_dir} ({sum(1 for _ in pages_dir.iterdir())} entries)")
+        shutil.rmtree(pages_dir)
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    _run("python", "-m", "goapp.synth.gen", "--count", str(count))
+    data_volume.commit()
 
 
 @app.function(

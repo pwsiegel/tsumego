@@ -2,7 +2,7 @@
        synth train-boards train-stones train-grid validate \
        docker-up docker-down \
        deploy logs \
-       modal-upload-synth modal-train-smoke modal-train-boards modal-train-stones modal-train-grid modal-pull-weights
+       modal-upload-synth modal-gen-synth modal-train-smoke modal-train-boards modal-train-stones modal-train-grid modal-pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -107,6 +107,9 @@ SYNTH_LOCAL_DIR := $(HOME)/data/go-app/data/synth_pages
 modal-upload-synth: ## Upload local synth_pages/ to the Modal volume (one-time)
 	modal volume create $(MODAL_VOLUME) 2>/dev/null || true
 	modal volume put --force $(MODAL_VOLUME) $(SYNTH_LOCAL_DIR) /data/synth_pages
+
+modal-gen-synth: ## Wipe + regenerate synth_pages on the Modal volume (CPU, ~3 min)
+	modal run training/modal_train.py::gen_synth
 
 modal-train-smoke: ## Run a tiny ~2 min smoke test on Modal (L4)
 	modal run training/modal_train.py::smoke
