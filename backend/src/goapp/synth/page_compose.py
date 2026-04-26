@@ -305,6 +305,46 @@ def _draw_problem_badge(
     return radius
 
 
+def _draw_corner_problem_badge(
+    draw: ImageDraw.ImageDraw,
+    corner_xy: tuple[int, int],
+    num: int,
+    font: ImageFont.ImageFont,
+    ink,
+    rng: random.Random,
+) -> None:
+    """Filled-circle numbered badge tucked AT the top-left corner of a
+    rendered board, instead of in a separate caption row above it. Mimics
+    the placement style in some Korean tsumego books (e.g. tesuji books)
+    where the problem number sits on or alongside the corner intersection
+    of each diagram. Visually, the badge is just outside the tight bbox
+    or straddling its corner — both placements stress the detector to
+    learn "circle-near-corner ≠ part of the board"."""
+    radius = max(10, font.size - 2)
+    tx, ty = corner_xy  # tight-bbox top-left in page coordinates
+    placement = rng.choice(("above", "above", "overlap"))
+    if placement == "above":
+        # Badge sits just above-left of the corner, tangent to the top
+        # frame line.
+        bx = tx + radius - rng.randint(0, 4)
+        by = ty - radius - rng.randint(2, 6)
+    else:
+        # Badge straddles the corner intersection.
+        bx = tx + rng.randint(-2, 4)
+        by = ty + rng.randint(-2, 4)
+    draw.ellipse(
+        [(bx - radius, by - radius), (bx + radius, by + radius)],
+        fill=ink,
+    )
+    label = str(num)
+    tw = draw.textlength(label, font=font)
+    th = font.size
+    draw.text(
+        (int(bx - tw / 2), int(by - th / 2 - 1)),
+        label, fill=(255, 255, 255), font=font,
+    )
+
+
 def _draw_header_ornament_strip(
     draw: ImageDraw.ImageDraw,
     box: tuple[int, int, int, int],
@@ -640,6 +680,7 @@ def _render_problems(
         "jitter": rng.random() < 0.75,
         "figure_labels": rng.random() < 0.5,
         "problem_badges": rng.random() < 0.4,
+        "corner_problem_badges": rng.random() < 0.25,
         "footer_ornament": rng.random() < 0.4,
     }
     rule_ink = (60, 60, 60)
@@ -737,6 +778,16 @@ def _render_problems(
                     draw,
                     (board_x + rb.image.width // 2, board_y - small_font.size),
                     label_text, small_font, rule_ink,
+                )
+
+            # Corner-anchored numbered badge. Drawn AFTER the board so it
+            # can sit on or just above the top-left frame intersection,
+            # which is the failure-mode visual we're training against.
+            if page_style["corner_problem_badges"]:
+                _draw_corner_problem_badge(
+                    draw,
+                    (board_x + style.margin, board_y + style.margin),
+                    problem_num, badge_font, rule_ink, rng,
                 )
 
             loose_bbox = (
