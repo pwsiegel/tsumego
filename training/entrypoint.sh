@@ -17,13 +17,11 @@ shift || true
 
 BUCKET_DATA="/gcs/tsumego-pwsiegel-data/data"
 LOCAL_DATA="/tmp/goapp-data"
-LOCAL_MODELS="/tmp/goapp-models"
 
-mkdir -p "$LOCAL_DATA" "$LOCAL_MODELS"
+mkdir -p "$LOCAL_DATA"
 ln -sfn "$BUCKET_DATA/synth_pages" "$LOCAL_DATA/synth_pages"
 
 export GOAPP_DATA_DIR="$LOCAL_DATA"
-export GOAPP_MODELS_DIR="$LOCAL_MODELS"
 
 case "$MODEL_TYPE" in
   boards)

@@ -2,7 +2,7 @@
 
 Reads synth pages from $GOAPP_DATA_DIR/data/synth_pages/, converts to
 YOLO format, splits train/val 80/20, trains, and saves the best weights
-to $GOAPP_DATA_DIR/models/board_detector.pt.
+to backend/data/models/board_detector.pt.
 
 Usage:
     uv --directory backend run --extra ml python -m goapp.ml.board_detect.train
@@ -22,7 +22,7 @@ from PIL import Image
 from ...paths import (
     BOARD_DETECTOR_PATH,
     MODELS_DIR,
-    MODELS_RUNS_DIR,
+    TRAINING_RUNS_DIR,
     SYNTH_PAGES_DIR as DEFAULT_PAGES,
     YOLO_DIR,
 )
@@ -100,7 +100,7 @@ def train(data_yaml: Path, epochs: int, model_out: Path, base_model: str) -> Pat
         data=str(data_yaml),
         epochs=epochs,
         imgsz=IMG_SIZE,
-        project=str(MODELS_RUNS_DIR),
+        project=str(TRAINING_RUNS_DIR),
         name="board_detector",
         exist_ok=True,
         patience=4,

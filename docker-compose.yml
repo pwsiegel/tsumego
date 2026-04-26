@@ -4,7 +4,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./backend/models:/app/models:ro
+      - ./backend/data/models:/app/data/models:ro
     restart: unless-stopped
 
   web:

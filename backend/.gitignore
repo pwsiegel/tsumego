@@ -6,7 +6,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-models/*.onnx
-models/*.pt
-models/*.pth
+*.onnx
+*.pth
+
+# Local-trained YOLO weights are noise; the canonical weights in
+# data/models/ are committed (see exception below).
 *.pt
+!data/models/*.pt

@@ -1,9 +1,17 @@
 """Central config for all data + model filesystem locations.
 
-Everything lives under $GOAPP_DATA_DIR. In production (Cloud Run) this is
-a Cloud Storage FUSE mount; locally it defaults to ~/data/go-app. Model
-weights are baked into the serving image at $GOAPP_MODELS_DIR (default
-the repo's data/models, which is what `make deploy` copies in).
+Two roots:
+
+* **Models** — production weights (`*_detector.pt`). Live in the repo at
+  `backend/data/models/` and are committed to git so a fresh clone is
+  immediately runnable. Cloud Run mirrors this layout at `/app/data/models/`
+  (baked in by the Dockerfile).
+* **Data** — everything else: synth pages, derived YOLO datasets,
+  validation sets, per-user libraries, transient uploads, training run
+  artifacts. Lives under `$GOAPP_DATA_DIR` (default `~/data/go-app`,
+  Cloud Run mounts the bucket at `/data`).
+
+Override either with `GOAPP_MODELS_DIR` / `GOAPP_DATA_DIR`.
 
 Subdirectory layout under $GOAPP_DATA_DIR:
     data/
@@ -15,8 +23,7 @@ Subdirectory layout under $GOAPP_DATA_DIR:
         bbox_test/           per-session PDF pages for the bbox tester
         tsumego/{user_id}/   per-user library of accepted problems
         uploads/{user_id}/   transient PDF uploads (signed-URL flow only)
-    models/
-        runs/                ultralytics training run artifacts
+        training_runs/       ultralytics training run artifacts
 """
 
 from __future__ import annotations
@@ -32,7 +39,11 @@ def _data_root() -> Path:
 def _models_root() -> Path:
     if "GOAPP_MODELS_DIR" in os.environ:
         return Path(os.environ["GOAPP_MODELS_DIR"])
-    return _data_root() / "models"
+    # Repo-relative: backend/data/models/. Mirrored at /app/data/models/
+    # in the Cloud Run image. Computed from this file's location so it
+    # works whether the package is installed editable or copied into a
+    # container at /app/src/goapp/.
+    return Path(__file__).resolve().parents[2] / "data" / "models"
 
 
 DATA_DIR = _data_root() / "data"
@@ -77,4 +88,5 @@ def uploads_object_key(user_id: str, upload_id: str) -> str:
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
 
-MODELS_RUNS_DIR = MODELS_DIR / "runs"
+# --- training run artifacts (ultralytics' project dir) ---
+TRAINING_RUNS_DIR = DATA_DIR / "training_runs"

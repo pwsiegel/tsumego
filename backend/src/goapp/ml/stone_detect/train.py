@@ -33,7 +33,7 @@ import numpy as np
 from ...paths import (
     DATA_DIR,
     MODELS_DIR,
-    MODELS_RUNS_DIR,
+    TRAINING_RUNS_DIR,
     SYNTH_PAGES_DIR as DEFAULT_PAGES,
 )
 
@@ -165,7 +165,7 @@ def train(data_yaml: Path, epochs: int, model_out: Path, base_model: str,
         data=str(data_yaml),
         epochs=epochs,
         imgsz=IMG_SIZE,
-        project=str(MODELS_RUNS_DIR),
+        project=str(TRAINING_RUNS_DIR),
         name="stone_detector",
         exist_ok=True,
         patience=4,

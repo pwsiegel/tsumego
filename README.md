@@ -137,22 +137,20 @@ tsumego/
 
 - **Python 3.11+** and [uv](https://docs.astral.sh/uv/)
 - **Node 18+**
-- **Trained model weights** at `backend/data/models/board_detector.pt` and
-  `backend/data/models/stone_detector.pt`. Without these, the app boots
-  but ingest will return 503s.
-  - If you have them locally at `~/data/go-app/models/`, copy them in:
-    `cp ~/data/go-app/models/{board,stone}_detector.pt backend/data/models/`
-  - Otherwise, train them (see "Train models" below) or pull from GCS:
-    `make pull-weights`.
-- (Optional, training only) **Local data dir**, default `~/data/go-app/`:
-  ```
-  ~/data/go-app/
-  ├── data/
-  │   ├── synth_pages/    Generated training pages (PNG + JSON)
-  │   └── val/<dataset>/  Labeled validation sets, if you have them
-  └── models/             Locally-trained .pt outputs
-  ```
-  Override the location with `GOAPP_DATA_DIR=/path/to/dir`.
+
+The trained weights live in the repo at `backend/data/models/{board,stone}_detector.pt`
+(~12 MB total, committed to git), so a fresh clone runs out of the box —
+no extra setup, no GCS pull. To retrain, see "Train models" below.
+
+(Optional, training only) **Local data dir**, default `~/data/go-app/`:
+```
+~/data/go-app/
+└── data/
+    ├── synth_pages/    Generated training pages (PNG + JSON)
+    ├── val/<dataset>/  Labeled validation sets, if you have them
+    └── training_runs/  Ultralytics run artifacts (logs, intermediate checkpoints)
+```
+Override the location with `GOAPP_DATA_DIR=/path/to/dir`.
 
 ### First-time setup
 
@@ -192,8 +190,8 @@ make train-boards                # ~10 min on MPS
 make train-stones                # ~20-30 min on MPS; set DEVICE=cpu if no GPU
 ```
 
-Outputs land at `~/data/go-app/models/{board,stone}_detector.pt`. Copy
-them into `backend/data/models/` to bake into the next serving build.
+Outputs overwrite `backend/data/models/{board,stone}_detector.pt` directly.
+Commit the new weights if you want them to ship with the next serving build.
 
 ### Train models on Vertex AI (L4 spot, ~$0.15-0.30 per run)
 

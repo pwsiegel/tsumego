@@ -3,7 +3,7 @@
        docker-up docker-down \
        deploy logs \
        sync-synth build-training-image \
-       train-cloud-boards train-cloud-stones pull-weights
+       train-cloud-smoke train-cloud-boards train-cloud-stones pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -58,7 +58,7 @@ train-stones: ## Train the stone detector (set DEVICE=cpu if no GPU)
 
 DATASET ?= hm2
 VAL_DIR ?= $(HOME)/data/go-app/data/val/$(DATASET)
-MODEL   ?= $(HOME)/data/go-app/models/stone_detector.pt
+MODEL   ?= backend/data/models/stone_detector.pt
 
 validate: ## Run pipeline against val dataset and print report
 	uv --directory backend run python -m goapp.cli.compare_on_val \
@@ -112,6 +112,12 @@ build-training-image: ## Build the CUDA training image via Cloud Build
 		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
 		--config=training/cloudbuild.yaml \
 		--substitutions=_IMAGE=$(GCP_TRAINING_IMAGE) .
+
+train-cloud-smoke: ## Submit a tiny ~2 min Vertex job to verify the pipeline
+	gcloud ai custom-jobs create \
+		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
+		--display-name=smoke-$(shell date +%Y%m%d-%H%M%S) \
+		--config=training/job-smoke.yaml
 
 train-cloud-boards: ## Submit board-detector training to Vertex (L4 spot)
 	gcloud ai custom-jobs create \

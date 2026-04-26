@@ -49,13 +49,14 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     GOAPP_FRONTEND_DIR=/app/frontend \
     GOAPP_DATA_DIR=/data \
-    GOAPP_MODELS_DIR=/app/models \
     PORT=8080
 
 COPY --from=backend /app/.venv /app/.venv
 COPY --from=backend /app/src /app/src
 COPY --from=frontend /web/dist /app/frontend
-COPY backend/data/models /app/models
+# Mirror the repo layout so paths.py's repo-relative MODELS_DIR resolves
+# to /app/data/models (parents[2] from /app/src/goapp/paths.py).
+COPY backend/data/models /app/data/models
 
 EXPOSE 8080
 CMD ["sh", "-c", "uvicorn goapp.api:app --host 0.0.0.0 --port ${PORT}"]
