@@ -150,3 +150,20 @@ def train_stones(limit: int = 1500, epochs: int = 30) -> None:
     data_volume.commit()
 
 
+@app.function(
+    image=image,
+    gpu=GPU_KIND,
+    volumes={VOLUME_MOUNT: data_volume},
+    timeout=TRAIN_TIMEOUT,
+)
+def train_intersections(limit: int = 1500, epochs: int = 30) -> None:
+    _run(
+        "python", "-m", "goapp.ml.intersection_detect.train",
+        "--limit", str(limit),
+        "--epochs", str(epochs),
+        "--device", "0",
+        "--model-out", f"{VOLUME_MOUNT}/models/intersection_detector.pt",
+    )
+    data_volume.commit()
+
+
