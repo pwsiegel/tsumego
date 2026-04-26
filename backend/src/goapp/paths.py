@@ -17,7 +17,6 @@ Subdirectory layout under $GOAPP_DATA_DIR:
     data/
         synth_pages/         synthetic page images + annotations
         synth_edge_crops/    derived: per-board crops with edge flags
-        synth_grid_crops/    derived: per-board crops with 19x19 grid labels
         yolo/                derived: YOLO dataset built from synth_pages
         yolo_stones/         derived: YOLO stone-detector dataset
         bbox_test/           per-session PDF pages for the bbox tester
@@ -87,7 +86,6 @@ def uploads_object_key(user_id: str, upload_id: str) -> str:
 # --- model weights ---
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
-GRID_DETECTOR_PATH = MODELS_DIR / "grid_detector.pt"
 
 # --- training run artifacts (ultralytics' project dir) ---
 TRAINING_RUNS_DIR = DATA_DIR / "training_runs"

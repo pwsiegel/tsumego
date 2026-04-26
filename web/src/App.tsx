@@ -2,7 +2,6 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { BboxTest } from './BboxTest';
 import { Collection } from './Collection';
 import { Compare } from './Compare';
-import { GridTest } from './GridTest';
 import { HealthGate } from './HealthGate';
 import { Home } from './Home';
 import { ProblemDetail } from './ProblemDetail';
@@ -20,11 +19,6 @@ function BboxTestRoute() {
 function StoneTestRoute() {
   const navigate = useNavigate();
   return <StoneTest onExit={() => navigate('/testing')} />;
-}
-
-function GridTestRoute() {
-  const navigate = useNavigate();
-  return <GridTest onExit={() => navigate('/testing')} />;
 }
 
 function TsumegoPlaceholder() {
@@ -49,7 +43,6 @@ function App() {
         <Route path="/compare/:dataset" element={<Compare />} />
         <Route path="/testing" element={<TestingIndex />} />
         <Route path="/testing/bbox" element={<BboxTestRoute />} />
-        <Route path="/testing/grid" element={<GridTestRoute />} />
         <Route path="/testing/stones" element={<StoneTestRoute />} />
         <Route path="/testing/validate/:dataset" element={<Validate />} />
         <Route path="*" element={<Navigate to="/" replace />} />

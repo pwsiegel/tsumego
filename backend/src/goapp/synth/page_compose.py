@@ -27,8 +27,7 @@ from .text_sources import LANGUAGES, LATIN_FONT_FALLBACK, Language, make_paragra
 BBOX_DETECTOR_PAD = 8  # pixels of paper-bg margin YOLO should learn to emit
                        # beyond the grid on every side. Keeps the outer lines
                        # comfortably inside the bbox even when YOLO is a few
-                       # px off, and downstream grid_detect finds true tight
-                       # bounds inside this padded region.
+                       # px off.
 
 
 @dataclass(frozen=True)
