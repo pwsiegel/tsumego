@@ -2,8 +2,7 @@
        synth train-boards train-stones validate \
        docker-up docker-down \
        deploy logs \
-       sync-synth build-training-image \
-       train-cloud-smoke train-cloud-boards train-cloud-stones pull-weights
+       modal-upload-synth modal-train-smoke modal-train-boards modal-train-stones modal-pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -95,42 +94,25 @@ logs: ## Tail recent Cloud Run logs (last 50 lines)
 		--project=$(GCP_PROJECT) --limit=50 --format='value(timestamp,textPayload)' --freshness=10m
 
 # ---------------------------------------------------------------------------
-# Vertex AI training (L4 spot)
+# Modal training (L4 GPUs on Modal)
 # ---------------------------------------------------------------------------
 
-GCP_BUCKET         := $(GCP_PROJECT)-data
-GCP_TRAINING_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/apps/training:latest
-SYNTH_LOCAL_DIR    := $(HOME)/data/go-app/data/synth_pages
-SYNTH_GCS_DIR      := gs://$(GCP_BUCKET)/data/synth_pages
-MODELS_GCS_DIR     := gs://$(GCP_BUCKET)/data/models
+MODAL_VOLUME    := tsumego-data
+SYNTH_LOCAL_DIR := $(HOME)/data/go-app/data/synth_pages
 
-sync-synth: ## Upload local synth_pages/ to GCS (run after `make synth`)
-	gsutil -m rsync -d -r $(SYNTH_LOCAL_DIR) $(SYNTH_GCS_DIR)
+modal-upload-synth: ## Upload local synth_pages/ to the Modal volume (one-time)
+	modal volume create $(MODAL_VOLUME) 2>/dev/null || true
+	modal volume put --force $(MODAL_VOLUME) $(SYNTH_LOCAL_DIR) /data/synth_pages
 
-build-training-image: ## Build the CUDA training image via Cloud Build
-	gcloud builds submit \
-		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
-		--config=training/cloudbuild.yaml \
-		--substitutions=_IMAGE=$(GCP_TRAINING_IMAGE) .
+modal-train-smoke: ## Run a tiny ~2 min smoke test on Modal (L4)
+	modal run training/modal_train.py::smoke
 
-train-cloud-smoke: ## Submit a tiny ~2 min Vertex job to verify the pipeline
-	gcloud ai custom-jobs create \
-		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
-		--display-name=smoke-$(shell date +%Y%m%d-%H%M%S) \
-		--config=training/job-smoke.yaml
+modal-train-boards: ## Train the board detector on Modal (L4)
+	modal run training/modal_train.py::train_boards
 
-train-cloud-boards: ## Submit board-detector training to Vertex (L4 spot)
-	gcloud ai custom-jobs create \
-		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
-		--display-name=board-detector-$(shell date +%Y%m%d-%H%M%S) \
-		--config=training/job-boards.yaml
+modal-train-stones: ## Train the stone detector on Modal (L4)
+	modal run training/modal_train.py::train_stones
 
-train-cloud-stones: ## Submit stone-detector training to Vertex (L4 spot)
-	gcloud ai custom-jobs create \
-		--project=$(GCP_PROJECT) --region=$(GCP_REGION) \
-		--display-name=stone-detector-$(shell date +%Y%m%d-%H%M%S) \
-		--config=training/job-stones.yaml
-
-pull-weights: ## Copy trained weights from GCS into backend/data/models/
-	gsutil cp $(MODELS_GCS_DIR)/board_detector.pt backend/data/models/
-	gsutil cp $(MODELS_GCS_DIR)/stone_detector.pt backend/data/models/
+modal-pull-weights: ## Copy trained weights from the Modal volume into backend/data/models/
+	modal volume get --force $(MODAL_VOLUME) /models/board_detector.pt backend/data/models/
+	modal volume get --force $(MODAL_VOLUME) /models/stone_detector.pt backend/data/models/

@@ -125,7 +125,7 @@ tsumego/
 │       ├── ml/            Detection + classical-geometry pipeline
 │       ├── cli/           Validation runner, dataset export, comparison
 │       └── synth/         Synthetic page generator
-├── training/              Vertex AI training image + job specs
+├── training/              Modal app for cloud GPU training
 ├── Dockerfile             Serving image (Cloud Run)
 ├── Makefile               All common tasks
 └── docker-compose.yml     Local containerized dev
@@ -193,24 +193,32 @@ make train-stones                # ~20-30 min on MPS; set DEVICE=cpu if no GPU
 Outputs overwrite `backend/data/models/{board,stone}_detector.pt` directly.
 Commit the new weights if you want them to ship with the next serving build.
 
-### Train models on Vertex AI (L4 spot, ~$0.15-0.30 per run)
+### Train models on Modal (L4 GPUs, ~$0.10-0.20 per run)
 
-Requires GCP setup (Cloud Run / GCS / IAP already provisioned — see
-`training/job-*.yaml` for project + bucket names).
+[Modal](https://modal.com) gives serverless GPU containers with no
+provisioning wait and a generous free tier ($30/mo).
+
+One-time setup:
 
 ```bash
-make sync-synth                  # local synth_pages → gs://...-data/data/synth_pages
-make build-training-image        # one-time per Dockerfile change
-make train-cloud-boards          # or train-cloud-stones; submits job and exits
-# … watch progress at https://console.cloud.google.com/vertex-ai/training
-make pull-weights                # GCS → backend/data/models/
+uv tool install modal            # installs the `modal` CLI in an isolated env
+modal token new                  # browser-based auth
+```
+
+Then:
+
+```bash
+make modal-upload-synth          # local synth_pages → Modal volume (one-time, or after regenerating)
+make modal-train-smoke           # ~2 min sanity check (50 pages, 2 epochs)
+make modal-train-boards          # or modal-train-stones; logs stream live
+make modal-pull-weights          # Modal volume → backend/data/models/
 make deploy                      # rebuild + roll out serving image with new weights
 ```
 
-The training entrypoint reads `synth_pages` from the GCS FUSE mount and
-keeps derived YOLO datasets / ultralytics run artifacts on local
-container disk (FUSE writes are slow). Only the final `best.pt` is
-copied back to the bucket.
+The Modal app (`training/modal_train.py`) ships `goapp` source into the
+container, mounts the `tsumego-data` volume at `/vol`, and points
+`GOAPP_DATA_DIR` / `GOAPP_MODELS_DIR` there so the train scripts read
+synth pages and write trained `.pt` files directly on the volume.
 
 ### Validate against a labeled dataset
 
