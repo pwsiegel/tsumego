@@ -10,6 +10,7 @@ Each language also advertises a system font that covers its script.
 
 from __future__ import annotations
 
+import os
 import random
 from dataclasses import dataclass
 
@@ -106,13 +107,46 @@ def _latin_sample(words: tuple[str, ...]):
     return _sample
 
 
-# ---- font paths (macOS) ----------------------------------------------------
+# ---- font paths ------------------------------------------------------------
+#
+# Each role lists candidate paths in preference order. The first path that
+# exists on the running machine wins. macOS paths use the system fonts that
+# ship with macOS; Linux paths come from the Debian noto-cjk + liberation
+# packages (installed in the Modal training image).
 
-_FONT_KO = "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
-_FONT_JA = "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"
-_FONT_ZH = "/System/Library/Fonts/Supplemental/Songti.ttc"
-_FONT_LATIN = "/System/Library/Fonts/Supplemental/Times New Roman.ttf"
-_FONT_LATIN_FALLBACK = "/System/Library/Fonts/Helvetica.ttc"
+
+def _first_existing(*paths: str) -> str:
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    # No candidate exists — return the first so PIL's default-font fallback
+    # in page_compose._load_font kicks in cleanly.
+    return paths[0]
+
+
+_FONT_KO = _first_existing(
+    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+)
+_FONT_JA = _first_existing(
+    "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+)
+_FONT_ZH = _first_existing(
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+)
+_FONT_LATIN = _first_existing(
+    "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+)
+_FONT_LATIN_FALLBACK = _first_existing(
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+)
 
 
 LANGUAGES: dict[str, Language] = {
