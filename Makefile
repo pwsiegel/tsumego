@@ -1,8 +1,8 @@
 .PHONY: help setup api web dev lint \
-       synth train-boards train-stones validate \
+       synth train-boards train-stones train-grid validate \
        docker-up docker-down \
        deploy logs \
-       modal-upload-synth modal-train-smoke modal-train-boards modal-train-stones modal-pull-weights
+       modal-upload-synth modal-train-smoke modal-train-boards modal-train-stones modal-train-grid modal-pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -50,6 +50,10 @@ train-boards: ## Train the board detector
 train-stones: ## Train the stone detector (set DEVICE=cpu if no GPU)
 	uv --directory backend run --extra ml python -m goapp.ml.stone_detect.train \
 		--limit 1500 --epochs 30 --device $(DEVICE)
+
+train-grid: ## Train the grid-geometry regressor
+	uv --directory backend run --extra ml python -m goapp.ml.grid_detect.train \
+		--limit 1500 --epochs 40 --device $(DEVICE)
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -113,6 +117,10 @@ modal-train-boards: ## Train the board detector on Modal (L4)
 modal-train-stones: ## Train the stone detector on Modal (L4)
 	modal run training/modal_train.py::train_stones
 
+modal-train-grid: ## Train the grid detector on Modal (L4)
+	modal run training/modal_train.py::train_grid
+
 modal-pull-weights: ## Copy trained weights from the Modal volume into backend/data/models/
 	modal volume get --force $(MODAL_VOLUME) /models/board_detector.pt backend/data/models/
 	modal volume get --force $(MODAL_VOLUME) /models/stone_detector.pt backend/data/models/
+	modal volume get --force $(MODAL_VOLUME) /models/grid_detector.pt backend/data/models/

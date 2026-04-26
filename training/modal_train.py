@@ -124,3 +124,20 @@ def train_stones(limit: int = 1500, epochs: int = 30) -> None:
         "--model-out", f"{VOLUME_MOUNT}/models/stone_detector.pt",
     )
     data_volume.commit()
+
+
+@app.function(
+    image=image,
+    gpu=GPU_KIND,
+    volumes={VOLUME_MOUNT: data_volume},
+    timeout=TRAIN_TIMEOUT,
+)
+def train_grid(limit: int = 1500, epochs: int = 40) -> None:
+    _run(
+        "python", "-m", "goapp.ml.grid_detect.train",
+        "--limit", str(limit),
+        "--epochs", str(epochs),
+        "--device", "cuda",
+        "--model-out", f"{VOLUME_MOUNT}/models/grid_detector.pt",
+    )
+    data_volume.commit()
