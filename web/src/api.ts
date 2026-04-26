@@ -105,6 +105,16 @@ export type BoardDiscretize = {
   stones: DiscretizedStone[];
 };
 
+export type Intersection = { x: number; y: number; conf: number };
+
+export type BoardIntersections = {
+  page_idx: number;
+  bbox_idx: number;
+  crop_width: number;
+  crop_height: number;
+  intersections: Intersection[];
+};
+
 // Streaming ingest events from `/api/pdf/ingest` (NDJSON body).
 export type IngestEvent =
   | { event: 'start'; source: string; uploaded_at: string; total_pages: number }
@@ -343,6 +353,12 @@ export const api = {
     discretizeBoard(pageIdx: number, bboxIdx: number, peakThresh: number): Promise<BoardDiscretize> {
       return request<BoardDiscretize>(
         `/api/pdf/board-discretize/${pageIdx}/${bboxIdx}?peak_thresh=${peakThresh}&${bust()}`,
+        NO_STORE,
+      );
+    },
+    detectIntersections(pageIdx: number, bboxIdx: number, peakThresh: number): Promise<BoardIntersections> {
+      return request<BoardIntersections>(
+        `/api/pdf/board-intersections/${pageIdx}/${bboxIdx}?peak_thresh=${peakThresh}&${bust()}`,
         NO_STORE,
       );
     },

@@ -65,6 +65,21 @@ class BoardDiscretizeLocal(BaseModel):
     stones: list[DiscretizedStoneOut]
 
 
+class IntersectionOut(BaseModel):
+    x: float
+    y: float
+    conf: float
+
+
+class BoardIntersections(BaseModel):
+    """Raw intersection detections for one bbox (dev tool)."""
+    page_idx: int
+    bbox_idx: int
+    crop_width: int
+    crop_height: int
+    intersections: list[IntersectionOut]
+
+
 class UploadUrlRequest(BaseModel):
     filename: str
 

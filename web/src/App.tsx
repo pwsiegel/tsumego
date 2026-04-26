@@ -4,6 +4,7 @@ import { Collection } from './Collection';
 import { Compare } from './Compare';
 import { HealthGate } from './HealthGate';
 import { Home } from './Home';
+import { IntersectionTest } from './IntersectionTest';
 import { ProblemDetail } from './ProblemDetail';
 import { Review } from './Review';
 import { StoneTest } from './StoneTest';
@@ -19,6 +20,11 @@ function BboxTestRoute() {
 function StoneTestRoute() {
   const navigate = useNavigate();
   return <StoneTest onExit={() => navigate('/testing')} />;
+}
+
+function IntersectionTestRoute() {
+  const navigate = useNavigate();
+  return <IntersectionTest onExit={() => navigate('/testing')} />;
 }
 
 function TsumegoPlaceholder() {
@@ -44,6 +50,7 @@ function App() {
         <Route path="/testing" element={<TestingIndex />} />
         <Route path="/testing/bbox" element={<BboxTestRoute />} />
         <Route path="/testing/stones" element={<StoneTestRoute />} />
+        <Route path="/testing/intersections" element={<IntersectionTestRoute />} />
         <Route path="/testing/validate/:dataset" element={<Validate />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

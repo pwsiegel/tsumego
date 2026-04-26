@@ -24,6 +24,13 @@ export function TestingIndex() {
           </span>
         </li>
         <li>
+          <Link to="/testing/intersections">Intersection detection</Link>
+          <span className="desc">
+            Upload a PDF, step through every detected board, and see the
+            raw intersection-detector points drawn on each crop.
+          </span>
+        </li>
+        <li>
           <Link to="/testing/validate/hm2">Validation: hm2</Link>
           <span className="desc">
             Run the current pipeline against the hm2 ground-truth dataset

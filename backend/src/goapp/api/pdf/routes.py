@@ -10,6 +10,10 @@ from fastapi.responses import Response, StreamingResponse
 from ... import gcs
 from ...auth import user_id_from_request
 from ...ml.board_detect.detect import ModelNotLoaded, detect_boards_yolo
+from ...ml.intersection_detect.detect import (
+    IntersectionModelNotLoaded,
+    detect_intersections_cnn,
+)
 from ...ml.pipeline import _board_crop, _discretize_board, _page_bboxes
 from ...paths import BBOX_TEST_DIR, uploads_dir, uploads_object_key
 from .schemas import (
@@ -17,9 +21,11 @@ from .schemas import (
     BboxUploadResponse,
     BoardBBoxOut,
     BoardDiscretizeLocal,
+    BoardIntersections,
     BoardListItem,
     BoardListResponse,
     IngestFromUploadRequest,
+    IntersectionOut,
     UploadUrlRequest,
     UploadUrlResponse,
 )
@@ -139,6 +145,26 @@ def board_discretize_endpoint(
 ) -> BoardDiscretizeLocal:
     """End-to-end pipeline for a single bbox."""
     return _discretize_board(page_idx, bbox_idx, peak_thresh)
+
+
+@router.get("/board-intersections/{page_idx}/{bbox_idx}",
+            response_model=BoardIntersections)
+def board_intersections_endpoint(
+    page_idx: int, bbox_idx: int,
+    peak_thresh: float = 0.3,
+) -> BoardIntersections:
+    """Raw intersection-detector output for a single bbox (dev tool)."""
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    h, w = crop.shape[:2]
+    try:
+        dets = detect_intersections_cnn(crop, peak_thresh=peak_thresh)
+    except IntersectionModelNotLoaded as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return BoardIntersections(
+        page_idx=page_idx, bbox_idx=bbox_idx,
+        crop_width=w, crop_height=h,
+        intersections=[IntersectionOut(**d) for d in dets],
+    )
 
 
 def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Iterator[str]:
