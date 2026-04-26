@@ -19,6 +19,21 @@ from ...paths import STONE_DETECTOR_PATH as MODEL_PATH  # noqa: E402
 PEAK_THRESH = 0.3  # kept as the `peak_thresh` kwarg name for API compat
 TRAIN_IMG_SIZE = 640  # training imgsz; used as default for larger crops
 
+# NMS IoU for stone detections. Stones are well-separated relative to their
+# size, so a moderate threshold is fine.
+STONE_NMS_IOU = 0.5
+
+# Color reclassification samples a centered sub-square of the bbox. 1/3 of
+# the radius keeps the sample well inside the stone, away from grid lines
+# at the edges where the YOLO bbox can clip a printed line.
+COLOR_SAMPLE_INNER_FRAC = 0.33
+
+# Mean-gray cutoffs for forcing the color label after sampling. Below
+# BLACK_GRAY_MAX → definitely black; above WHITE_GRAY_MIN → definitely
+# white; in between we trust YOLO's class head.
+BLACK_GRAY_MAX = 100
+WHITE_GRAY_MIN = 180
+
 
 class StoneModelNotLoaded(RuntimeError):
     pass
@@ -63,7 +78,7 @@ def detect_stones_cnn(
         crop_bgr,
         imgsz=imgsz,
         conf=float(peak_thresh),
-        iou=0.5,
+        iou=STONE_NMS_IOU,
         augment=True,  # test-time aug: multi-scale + flip, merged via NMS
         verbose=False,
     )
@@ -92,18 +107,18 @@ def detect_stones_cnn(
         cy = float((y0 + y1) / 2.0)
         r = float(max(x1 - x0, y1 - y0) / 2.0)
         color = "B" if int(c) == 0 else "W"
-        # Sample the center 1/3 of the bbox — avoids grid lines at stone
-        # edges and captures the stone's actual fill color.
-        inner = max(1, int(r * 0.33))
+        # Sample the center fraction of the bbox — avoids grid lines at
+        # stone edges and captures the stone's actual fill color.
+        inner = max(1, int(r * COLOR_SAMPLE_INNER_FRAC))
         ix0 = max(0, int(cx - inner))
         ix1 = min(gray_img.shape[1], int(cx + inner) + 1)
         iy0 = max(0, int(cy - inner))
         iy1 = min(gray_img.shape[0], int(cy + inner) + 1)
         if ix1 > ix0 and iy1 > iy0:
             mean_gray = float(gray_img[iy0:iy1, ix0:ix1].mean())
-            if mean_gray < 100:
+            if mean_gray < BLACK_GRAY_MAX:
                 color = "B"
-            elif mean_gray > 180:
+            elif mean_gray > WHITE_GRAY_MIN:
                 color = "W"
         detections.append({
             "x": cx,

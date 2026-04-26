@@ -26,6 +26,27 @@ import numpy as np
 
 BOARD_SIZE = 19
 
+# Cell-size estimator: plausible-pitch range is bounded by an absolute
+# floor (any smaller is sub-pixel noise) and a ceiling derived from the
+# crop dimensions (no real board has fewer than ~3.5 cells visible across
+# its largest extent). MIN_PITCH_CROP_DIVISOR keeps us above the floor on
+# small crops too.
+MIN_PITCH_PIXELS = 8.0
+MIN_PITCH_CROP_DIVISOR = 22.0
+MAX_PITCH_CROP_DIVISOR = 3.5
+
+# Adjacent-cell distances cluster at the bottom of the pairwise-distance
+# distribution. The 25th percentile is right for densely-populated boards
+# but overshoots ~2× on sparse ones; the 5th percentile is robust across
+# both densities at the cost of being slightly more sensitive to outliers
+# (rare since we already filter to plausible pitches).
+PITCH_PERCENTILE = 5
+
+# Brute-force origin search resolution. 101 evenly spaced offsets across
+# [0, cell_size) → ~cell_size/100 pixel precision, well below the snap
+# residual we're optimizing against.
+ORIGIN_SEARCH_STEPS = 101
+
 
 @dataclass(frozen=True)
 class DiscretizedStone:
@@ -139,8 +160,8 @@ def _estimate_cell_size(
     xs: np.ndarray, ys: np.ndarray,
     crop_w: int, crop_h: int,
 ) -> float:
-    min_pitch = max(8.0, min(crop_w, crop_h) / 22.0)
-    max_pitch = max(crop_w, crop_h) / 3.5
+    min_pitch = max(MIN_PITCH_PIXELS, min(crop_w, crop_h) / MIN_PITCH_CROP_DIVISOR)
+    max_pitch = max(crop_w, crop_h) / MAX_PITCH_CROP_DIVISOR
     N = len(xs)
     if N < 2:
         return 0.0
@@ -152,12 +173,7 @@ def _estimate_cell_size(
     plausible = dists[(dists >= min_pitch) & (dists <= max_pitch)]
     if plausible.size == 0:
         return 0.0
-    # Lowest-percentile of plausible 1D distances is the cell pitch:
-    # adjacent-cell spacings cluster at the bottom of the distribution
-    # even when stones are sparse or clumped (fewer adjacent pairs than
-    # multi-cell pairs). 25th percentile is right for densely-populated
-    # boards but overshoots 2× on sparse ones; 5th is robust across both.
-    return float(np.percentile(plausible, 5))
+    return float(np.percentile(plausible, PITCH_PERCENTILE))
 
 
 def _estimate_origin_1d(vals: np.ndarray, cell_size: float) -> float:
@@ -166,8 +182,7 @@ def _estimate_origin_1d(vals: np.ndarray, cell_size: float) -> float:
         return 0.0
     best_origin = 0.0
     best_cost = float("inf")
-    # 100-step brute force is ~cell_size/100 ≈ 0.3 px precision; good enough.
-    for o in np.linspace(0.0, cell_size, 101, endpoint=False):
+    for o in np.linspace(0.0, cell_size, ORIGIN_SEARCH_STEPS, endpoint=False):
         offset = vals - o
         snapped = offset - np.round(offset / cell_size) * cell_size
         cost = float(np.sum(snapped * snapped))

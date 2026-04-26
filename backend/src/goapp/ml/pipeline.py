@@ -18,6 +18,11 @@ from ..paths import BBOX_TEST_DIR
 
 BOARD_CROP_PAD = 10  # pixels of safety context around each YOLO bbox
 
+# A real stone fills most of its cell; a hoshi (printed star point) is a
+# small dot. Anything detected with bbox radius below this fraction of the
+# pitch is assumed to be a hoshi false positive and dropped.
+HOSHI_RADIUS_FRAC = 0.28
+
 
 def _resolve_geometry(
     crop_bgr,
@@ -149,7 +154,7 @@ def _discretize_board(page_idx: int, bbox_idx: int, peak_thresh: float = 0.3):
             cmin = 0 if edges.get("left") else (19 - vc if edges.get("right") else max(0, (19 - vc) // 2))
             rmin = 0 if edges.get("top") else (19 - vr if edges.get("bottom") else max(0, (19 - vr) // 2))
             min_pitch = min(pitch_x, pitch_y)
-            hoshi_r = 0.28 * min_pitch
+            hoshi_r = HOSHI_RADIUS_FRAC * min_pitch
 
             def _not_hoshi(s: dict) -> bool:
                 cl = max(0, min(vc - 1, int(round((s["x"] - ox) / pitch_x))))

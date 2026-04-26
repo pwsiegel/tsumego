@@ -23,6 +23,35 @@ import cv2
 import numpy as np
 
 
+# Crops smaller than this in either dimension can't carry a meaningful
+# strip + peak signal, so we skip them.
+MIN_CROP_SIZE = 30
+
+# Adaptive-threshold params — the values that pick up faint scanned grid
+# lines without melting frames into the background. Same family of values
+# is used in pitch/measure.py; kept duplicated since the two modules score
+# different things and we don't want a coupling that pretends they don't.
+ADAPTIVE_BLOCK_SIZE = 25
+ADAPTIVE_C = 8
+
+# Strip width (px) along each candidate side. The strip needs to be tall
+# enough to clear ~2 grid pitches at scan resolution. We take the larger
+# of a fixed floor and 1/3 of the side length.
+STRIP_BAND_MIN = 100
+
+# Peak threshold inside the strip: peaks must reach at least PEAK_FRAC of
+# the strip's max density, with a floor that prevents low-contrast strips
+# (mostly empty) from generating false peaks. Tuned across hm2 (faint
+# scans, max ~0.5) and cho-chikun (high-contrast, stone-stacking noise);
+# see the body of _score_side for the failure modes.
+PEAK_THRESH_FRAC = 0.5
+PEAK_THRESH_FLOOR = 0.25
+
+# Darkness-delta normalization: a 30-gray gap between outer and inner
+# peak medians is treated as full-confidence "frame is darker".
+DARKNESS_DELTA_NORM = 30.0
+
+
 class EdgeModelNotLoaded(RuntimeError):
     """Retained for API compatibility. Classical detector never raises this."""
 
@@ -44,13 +73,13 @@ def detect_edges_with_probs(crop_bgr: np.ndarray) -> dict[str, float]:
         if crop_bgr.ndim == 3 else crop_bgr
     )
     h, w = gray.shape
-    if h < 30 or w < 30:
+    if h < MIN_CROP_SIZE or w < MIN_CROP_SIZE:
         return {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0}
 
     bi = cv2.adaptiveThreshold(
         gray, 255,
         cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
-        blockSize=25, C=8,
+        blockSize=ADAPTIVE_BLOCK_SIZE, C=ADAPTIVE_C,
     )
 
     return {
@@ -74,18 +103,15 @@ def _score_side(gray: np.ndarray, bi: np.ndarray, side: str) -> float:
         return 0.0
 
     H, W = b.shape
-    band = min(H, max(100, H // 3))
+    band = min(H, max(STRIP_BAND_MIN, H // 3))
     strip_b = b[:band]
     strip_g = g[:band]
 
     density = strip_b.mean(axis=1) / 255.0
-    # Adaptive threshold: half the strip's max density, with a floor.
-    # - Fixed 0.35 misses hm2's faint scanned grid lines (max density ~0.5)
-    # - Fixed 0.25 lets cho-chikun's stone columns (stacked density ~0.3)
-    #   merge with the first interior line, poisoning its darkness signal.
-    # max*0.5 scales with per-image contrast; 0.25 floor keeps us above
-    # stone-stacking noise for high-contrast prints.
-    thr = max(0.25, density.max() * 0.5)
+    # Adaptive threshold: a fraction of the strip's max density, with a
+    # floor. See PEAK_THRESH_FRAC / PEAK_THRESH_FLOOR for why these
+    # specific values.
+    thr = max(PEAK_THRESH_FLOOR, density.max() * PEAK_THRESH_FRAC)
     peaks = _find_runs(density, min_density=thr)
     if len(peaks) < 2:
         return 0.0
@@ -104,8 +130,8 @@ def _score_side(gray: np.ndarray, bi: np.ndarray, side: str) -> float:
 
     # Relative thickness: frames are thicker. 1.0 ratio → 0, 2.0 → 1.0.
     thick_score = max(0.0, min(1.0, (outer_thick / max(inner_thick, 1)) - 1.0))
-    # Relative darkness: frames are darker (lower gray). Delta of 30 → 1.0.
-    dark_score = max(0.0, min(1.0, (inner_gray - outer_gray) / 30.0))
+    # Relative darkness: frames are darker (lower gray).
+    dark_score = max(0.0, min(1.0, (inner_gray - outer_gray) / DARKNESS_DELTA_NORM))
 
     return max(thick_score, dark_score)
 

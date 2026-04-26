@@ -27,6 +27,45 @@ import cv2
 import numpy as np
 
 
+# Crops smaller than this in either dimension can't carry a meaningful
+# strip + peak signal.
+MIN_CROP_SIZE = 40
+
+# Adaptive-threshold params; same family as edge_detect/detect.py. Kept
+# duplicated so the two modules can drift independently if their needs
+# diverge.
+ADAPTIVE_BLOCK_SIZE = 25
+ADAPTIVE_C = 8
+
+# Per-side strip width for finding the first two grid peaks. Wider than
+# edge_detect's strip because we need to clear at least 2 grid pitches.
+STRIP_BAND_MIN = 150
+
+# Peak threshold inside the per-side strip (frame + first interior line).
+STRIP_PEAK_FRAC = 0.5
+STRIP_PEAK_FLOOR = 0.25
+
+# Smaller pitches than this aren't physical (5px boards don't exist) and
+# usually mean we picked up noise as the second peak.
+MIN_PITCH_PIXELS = 10
+
+# Threshold for the *full-axis* density profile we use to walk the
+# periodic grid inward from the frame. Looser than the per-side strip's
+# threshold because individual interior grid lines can be partially
+# occluded by stones; we want to catch them anyway.
+WALK_PEAK_FRAC = 0.35
+WALK_PEAK_FLOOR = 0.2
+
+# How far each predicted grid-line position can drift before we declare a
+# miss, expressed as a fraction of pitch. ±pitch/3 tolerates a fair amount
+# of perspective without overlapping the next predicted line.
+WALK_TOLERANCE_FRAC = 1 / 3
+
+# Number of consecutive missed grid predictions before we conclude we've
+# walked off the board. Allows the occasional stone-occluded line.
+WALK_MAX_MISSES = 2
+
+
 def measure_grid(
     crop_bgr: np.ndarray, edges: dict[str, bool],
 ) -> dict:
@@ -60,13 +99,13 @@ def measure_grid(
         "top_last": None, "bottom_last": None,
         "left_last": None, "right_last": None,
     }
-    if h < 40 or w < 40:
+    if h < MIN_CROP_SIZE or w < MIN_CROP_SIZE:
         return empty
 
     bi = cv2.adaptiveThreshold(
         gray, 255,
         cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
-        blockSize=25, C=8,
+        blockSize=ADAPTIVE_BLOCK_SIZE, C=ADAPTIVE_C,
     )
 
     result = dict(empty)
@@ -116,42 +155,43 @@ def _measure_side(
         return None, None, None
 
     H, W = s.shape
-    band = min(H, max(150, H // 3))
+    band = min(H, max(STRIP_BAND_MIN, H // 3))
     strip = s[:band]
 
     density = strip.mean(axis=1) / 255.0
-    thr = max(0.25, density.max() * 0.5)
+    thr = max(STRIP_PEAK_FLOOR, density.max() * STRIP_PEAK_FRAC)
     peaks = _find_runs(density, min_density=thr)
     if len(peaks) < 2:
         return None, None, None
     _, _, c0 = peaks[0]
     _, _, c1 = peaks[1]
     pitch = c1 - c0
-    if pitch < 10:
+    if pitch < MIN_PITCH_PIXELS:
         return None, None, None
 
     # Walk the periodic grid from the frame across the FULL axis. For
     # each predicted line position c0 + k*pitch, check whether there's
-    # a density peak within ±pitch/3 of that position. Individual grid
-    # lines can dip below threshold (stones sitting on them, local
-    # noise), so allow up to 2 consecutive misses before concluding
-    # we've run off the board.
+    # a density peak within ±WALK_TOLERANCE_FRAC*pitch of it. Individual
+    # grid lines can dip below threshold (stones sitting on them, local
+    # noise), so allow up to WALK_MAX_MISSES consecutive misses before
+    # concluding we've run off the board.
     full_density = s.mean(axis=1) / 255.0
-    full_thr = max(0.2, full_density.max() * 0.35)
+    full_thr = max(WALK_PEAK_FLOOR, full_density.max() * WALK_PEAK_FRAC)
+    tol = pitch * WALK_TOLERANCE_FRAC
     last_line = c0
     misses = 0
     for k in range(1, 19):
         predicted = c0 + k * pitch
         if predicted >= H:
             break
-        lo = max(0, int(predicted - pitch / 3))
-        hi = min(H, int(predicted + pitch / 3) + 1)
+        lo = max(0, int(predicted - tol))
+        hi = min(H, int(predicted + tol) + 1)
         if full_density[lo:hi].max() >= full_thr:
             last_line = predicted
             misses = 0
         else:
             misses += 1
-            if misses >= 2:
+            if misses >= WALK_MAX_MISSES:
                 break
 
     return pitch, c0, last_line
