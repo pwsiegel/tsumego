@@ -12,6 +12,7 @@ dependencies = [
   "numpy>=2.1",
   "pypdfium2>=4.30",
   "opencv-python-headless>=4.10",
+  "scikit-image>=0.24",
   "google-cloud-storage>=2.18",
 ]
 
