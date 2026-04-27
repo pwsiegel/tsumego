@@ -39,7 +39,19 @@ def _load_model():
         raise ModelNotLoaded(f"model file not found: {MODEL_PATH}")
     from ultralytics import YOLO  # imported lazily so base deps don't need it
     log.info("loading YOLO model from %s", MODEL_PATH)
-    return YOLO(str(MODEL_PATH))
+    model = YOLO(str(MODEL_PATH))
+    # ultralytics lazily fuses BN layers on the first predict() and can raise
+    # AttributeError on already-fused Conv modules (8.4.39). The error is
+    # one-shot and self-heals: subsequent predicts work fine. Force the fuse
+    # at load time and absorb the glitch so user-facing requests never see it.
+    try:
+        model.predict(
+            np.zeros((640, 640, 3), dtype=np.uint8),
+            conf=0.99, iou=0.99, verbose=False,
+        )
+    except AttributeError as e:
+        log.info("YOLO warmup absorbed fuse glitch: %s", e)
+    return model
 
 
 def detect_boards_yolo(image_bgr: np.ndarray) -> list[BoardBBox]:

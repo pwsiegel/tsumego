@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
 log = logging.getLogger(__name__)
 
-from ...paths import INTERSECTION_DETECTOR_PATH as MODEL_PATH  # noqa: E402
+from ...paths import INTERSECTION_DETECTOR_PATH as DEFAULT_MODEL_PATH  # noqa: E402
 
 PEAK_THRESH = 0.3
 TRAIN_IMG_SIZE = 640
@@ -27,29 +28,29 @@ class IntersectionModelNotLoaded(RuntimeError):
     pass
 
 
-def model_available() -> bool:
-    return MODEL_PATH.exists()
+def model_available(model_path: Path = DEFAULT_MODEL_PATH) -> bool:
+    return model_path.exists()
 
 
-@lru_cache(maxsize=1)
-def _load_model():
-    if not MODEL_PATH.exists():
-        raise IntersectionModelNotLoaded(f"model file not found: {MODEL_PATH}")
+@lru_cache(maxsize=4)
+def _load_model(model_path: Path):
+    if not model_path.exists():
+        raise IntersectionModelNotLoaded(f"model file not found: {model_path}")
     from ultralytics import YOLO
-    log.info("loading intersection YOLO from %s", MODEL_PATH)
-    model = YOLO(str(MODEL_PATH))
-    return model
+    log.info("loading intersection YOLO from %s", model_path)
+    return YOLO(str(model_path))
 
 
 def detect_intersections_cnn(
     crop_bgr: np.ndarray,
     peak_thresh: float = PEAK_THRESH,
+    model_path: Path = DEFAULT_MODEL_PATH,
 ) -> list[dict]:
     """Run YOLO on a board crop; return detected visible intersection centers.
 
     Each entry: {"x", "y", "conf"} in the crop's pixel coordinate space.
     """
-    model = _load_model()
+    model = _load_model(model_path)
     orig_h, orig_w = crop_bgr.shape[:2]
     if orig_h == 0 or orig_w == 0:
         return []
@@ -59,7 +60,10 @@ def detect_intersections_cnn(
         imgsz=TRAIN_IMG_SIZE,
         conf=float(peak_thresh),
         iou=INTERSECTION_NMS_IOU,
-        augment=True,
+        # TTA is on for stones (sparse, robust). For intersections (dense,
+        # 1-pitch apart) the multi-scale duplicates aren't always merged
+        # cleanly and survive as offset ghosts — turn it off.
+        augment=False,
         verbose=False,
     )
     if not results:
@@ -79,13 +83,14 @@ def detect_intersections_cnn(
             "conf": float(p),
         })
 
-    # Dedupe TTA duplicates: anything within ~quarter-pitch of an already-
-    # kept detection is a duplicate. We don't know the pitch yet, so use
-    # the bbox half-size as a proxy (each box is ~0.5·pitch).
+    # Dedupe near-duplicates: anything within ~quarter-pitch of an already-
+    # kept detection is a duplicate. We don't know the pitch directly, but
+    # each predicted box is ~0.5·pitch wide, so median(box_dim)/2 ≈
+    # 0.25·pitch — well below the 1·pitch spacing of true neighbors.
     detections.sort(key=lambda d: -d["conf"])
     half_proxy = float(max(1.0, np.median([
         max(x1 - x0, y1 - y0) for (x0, y0, x1, y1) in xyxy
-    ]) / 4.0))
+    ]) / 2.0))
     kept: list[dict] = []
     for d in detections:
         dup = False
