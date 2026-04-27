@@ -1,0 +1,103 @@
+.edge-test {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.edge-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.edge-status {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.edge-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.edge-actions button {
+  padding: 0.3rem 0.6rem;
+}
+
+.edge-message {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.edge-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 1rem;
+  overflow: auto;
+}
+
+.edge-panel {
+  position: relative;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.edge-img {
+  display: block;
+  max-height: 88vh;
+  max-width: 70vw;
+  width: auto;
+  height: auto;
+}
+
+.edge-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.edge-summary {
+  flex: 0 0 auto;
+  min-width: 18rem;
+  font-size: 0.85rem;
+  background: #fafafa;
+  border: 1px solid #e3e3e3;
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+}
+.edge-summary h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+.edge-summary table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.edge-summary th, .edge-summary td {
+  text-align: left;
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid #eee;
+}
+.edge-summary .real {
+  color: rgb(0, 130, 50);
+  font-weight: 600;
+}
+.edge-summary .cut {
+  color: rgb(180, 70, 30);
+  font-weight: 600;
+}
+.edge-summary .agg {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #666;
+}

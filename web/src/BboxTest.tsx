@@ -75,6 +75,7 @@ export function BboxTest({ onExit }: Props) {
 
   const renderOverlay = () => {
     if (!imgSize || !detect) return null;
+    const stroke = Math.max(2, detect.page_width / 400);
     return (
       <svg
         viewBox={`0 0 ${detect.page_width} ${detect.page_height}`}
@@ -83,16 +84,16 @@ export function BboxTest({ onExit }: Props) {
         style={{ pointerEvents: 'none' }}
       >
         {detect.boards.map((b, i) => (
-          <g key={i}>
+          <g key={`b${i}`}>
             <rect
               x={b.x0} y={b.y0}
               width={b.x1 - b.x0} height={b.y1 - b.y0}
-              fill="none" stroke="rgb(255,60,60)" strokeWidth={Math.max(2, detect.page_width / 400)}
+              fill="none" stroke="rgb(40,180,80)" strokeWidth={stroke}
             />
             <text
               x={b.x0 + 4} y={b.y0 + Math.max(14, detect.page_height / 80)}
               fontSize={Math.max(14, detect.page_height / 60)}
-              fill="rgb(255,60,60)" fontWeight="bold"
+              fill="rgb(40,180,80)" fontWeight="bold"
             >
               {i + 1}
             </text>

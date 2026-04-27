@@ -105,14 +105,57 @@ export type BoardDiscretize = {
   stones: DiscretizedStone[];
 };
 
-export type Intersection = { x: number; y: number; conf: number };
+export type StoneCenter = { x: number; y: number; color: string };
+
+export type FusedLattice = {
+  pitch_x: number | null;
+  pitch_y: number | null;
+  origin_x: number | null;
+  origin_y: number | null;
+  edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
+};
+
+export type Segment = { x1: number; y1: number; x2: number; y2: number };
 
 export type BoardIntersections = {
   page_idx: number;
   bbox_idx: number;
   crop_width: number;
   crop_height: number;
-  intersections: Intersection[];
+  stones: StoneCenter[];
+  segments: Segment[];
+  fused_lattice: FusedLattice | null;
+  skeleton_junctions: Junction[];
+};
+
+export type Junction = {
+  x: number;
+  y: number;
+  kind: 'T' | 'L' | '+' | 'I' | '?';
+  arms: number;
+  outward: string[];
+};
+
+export type SideTally = { t: number; l: number; total: number };
+
+export type StoneEdgeClass = {
+  x: number;
+  y: number;
+  r: number;
+  color: 'B' | 'W';
+  sides: { N: boolean; E: boolean; S: boolean; W: boolean };
+};
+
+export type BoardTJunctionEdges = {
+  page_idx: number;
+  bbox_idx: number;
+  crop_width: number;
+  crop_height: number;
+  segments: Segment[];
+  junctions: Junction[];
+  sides: { left: SideTally; right: SideTally; top: SideTally; bottom: SideTally };
+  edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
+  stone_edges: StoneEdgeClass[];
 };
 
 // Streaming ingest events from `/api/pdf/ingest` (NDJSON body).
@@ -356,9 +399,19 @@ export const api = {
         NO_STORE,
       );
     },
-    detectIntersections(pageIdx: number, bboxIdx: number, peakThresh: number): Promise<BoardIntersections> {
+    detectIntersections(
+      pageIdx: number, bboxIdx: number, peakThresh: number,
+    ): Promise<BoardIntersections> {
       return request<BoardIntersections>(
         `/api/pdf/board-intersections/${pageIdx}/${bboxIdx}?peak_thresh=${peakThresh}&${bust()}`,
+        NO_STORE,
+      );
+    },
+    detectTJunctionEdges(
+      pageIdx: number, bboxIdx: number, peakThresh: number,
+    ): Promise<BoardTJunctionEdges> {
+      return request<BoardTJunctionEdges>(
+        `/api/pdf/board-tjunctions/${pageIdx}/${bboxIdx}?peak_thresh=${peakThresh}&${bust()}`,
         NO_STORE,
       );
     },
@@ -367,6 +420,12 @@ export const api = {
     },
     boardCropUrl(pageIdx: number, bboxIdx: number): string {
       return `/api/pdf/board-crop/${pageIdx}/${bboxIdx}.png?${bust()}`;
+    },
+    boardCleanedUrl(pageIdx: number, bboxIdx: number): string {
+      return `/api/pdf/board-cleaned/${pageIdx}/${bboxIdx}.png?${bust()}`;
+    },
+    boardSkeletonUrl(pageIdx: number, bboxIdx: number): string {
+      return `/api/pdf/board-skeleton/${pageIdx}/${bboxIdx}.png?${bust()}`;
     },
     /**
      * Stream PDF ingest progress over NDJSON. Calls `onProgress` with the
