@@ -65,19 +65,80 @@ class BoardDiscretizeLocal(BaseModel):
     stones: list[DiscretizedStoneOut]
 
 
-class IntersectionOut(BaseModel):
+class StoneCenterOut(BaseModel):
     x: float
     y: float
-    conf: float
+    color: str
+
+
+class FusedLatticeOut(BaseModel):
+    """Fused-lattice fit result. Either pitch may be None when the fit
+    couldn't fix that axis; the frontend draws what's available."""
+    pitch_x: float | None
+    pitch_y: float | None
+    origin_x: float | None
+    origin_y: float | None
+    edges: dict[str, bool]
+
+
+class SegmentOut(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class JunctionOut(BaseModel):
+    x: float
+    y: float
+    kind: str  # "T" | "L" | "+" | "I" | "?"
+    arms: int  # bitmask N=1, E=2, S=4, W=8
+    outward: list[str]  # subset of "N", "E", "S", "W"
 
 
 class BoardIntersections(BaseModel):
-    """Raw intersection detections for one bbox (dev tool)."""
+    """Signals consumed by `_discretize_board`, exposed to the dev tool.
+
+    All fields are restricted to what the discretization pipeline
+    actually uses: stones (after grid-bbox filter), skeleton junctions
+    and edges, segments (after grid-bbox filter) and the fused lattice
+    fit derived from them.
+    """
     page_idx: int
     bbox_idx: int
     crop_width: int
     crop_height: int
-    intersections: list[IntersectionOut]
+    stones: list[StoneCenterOut]
+    segments: list[SegmentOut]
+    fused_lattice: FusedLatticeOut | None
+    skeleton_junctions: list[JunctionOut]
+
+
+class SideTallyOut(BaseModel):
+    t: int
+    l: int
+    total: int
+
+
+class StoneEdgeClassOut(BaseModel):
+    x: float
+    y: float
+    r: float
+    color: str  # "B" | "W"
+    sides: dict[str, bool]  # keys "N", "E", "S", "W"
+
+
+class BoardTJunctionEdges(BaseModel):
+    """Segment-topology edge detection on one bbox (dev tool)."""
+    page_idx: int
+    bbox_idx: int
+    crop_width: int
+    crop_height: int
+    segments: list[SegmentOut]
+    junctions: list[JunctionOut]
+    sides: dict[str, SideTallyOut]
+    edges: dict[str, bool]
+    stone_edges: list[StoneEdgeClassOut]
 
 
 class UploadUrlRequest(BaseModel):

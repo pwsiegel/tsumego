@@ -9,13 +9,19 @@ from fastapi.responses import Response, StreamingResponse
 
 from ... import gcs
 from ...auth import user_id_from_request
-from ...ml.board_detect.detect import ModelNotLoaded, detect_boards_yolo
-from ...ml.intersection_detect.detect import (
-    IntersectionModelNotLoaded,
-    detect_intersections_cnn,
+from ...ml.pipeline import (
+    _board_crop,
+    _discretize_board,
+    _page_bboxes,
+    _page_bboxes_cached,
 )
-from ...ml.pipeline import _board_crop, _discretize_board, _page_bboxes
-from ...paths import BBOX_TEST_DIR, uploads_dir, uploads_object_key
+from ...ml.stone_detect.clean import paint_out_stones
+from ...ml.stone_detect.detect import detect_stones_cnn
+from ...paths import (
+    BBOX_TEST_DIR,
+    uploads_dir,
+    uploads_object_key,
+)
 from .schemas import (
     BboxDetectResponse,
     BboxUploadResponse,
@@ -24,8 +30,14 @@ from .schemas import (
     BoardIntersections,
     BoardListItem,
     BoardListResponse,
+    BoardTJunctionEdges,
+    FusedLatticeOut,
     IngestFromUploadRequest,
-    IntersectionOut,
+    JunctionOut,
+    SegmentOut,
+    SideTallyOut,
+    StoneCenterOut,
+    StoneEdgeClassOut,
     UploadUrlRequest,
     UploadUrlResponse,
 )
@@ -53,6 +65,7 @@ async def bbox_upload_endpoint(file: UploadFile = File(...)) -> BboxUploadRespon
     if BBOX_TEST_DIR.exists():
         shutil.rmtree(BBOX_TEST_DIR)
     BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
+    _page_bboxes_cached.cache_clear()
 
     try:
         pdf = pdfium.PdfDocument(io.BytesIO(content))
@@ -80,19 +93,9 @@ def bbox_page_endpoint(page_idx: int) -> Response:
 
 @router.get("/bbox-detect/{page_idx}", response_model=BboxDetectResponse)
 def bbox_detect_endpoint(page_idx: int) -> BboxDetectResponse:
-    import cv2
-    import numpy as np
-    path = BBOX_TEST_DIR / f"page_{page_idx:04d}.png"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"page {page_idx} not found")
-    img = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(status_code=500, detail="could not decode page image")
+    """Return raw YOLO bboxes for the page."""
+    img, raw = _page_bboxes(page_idx)
     h, w = img.shape[:2]
-    try:
-        boards = detect_boards_yolo(img)
-    except ModelNotLoaded as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
     return BboxDetectResponse(
         page_index=page_idx,
         page_width=w, page_height=h,
@@ -100,7 +103,7 @@ def bbox_detect_endpoint(page_idx: int) -> BboxDetectResponse:
             BoardBBoxOut(
                 x0=b.x0, y0=b.y0, x1=b.x1, y1=b.y1,
                 confidence=b.confidence,
-            ) for b in boards
+            ) for b in raw
         ],
     )
 
@@ -137,6 +140,50 @@ def board_crop_endpoint(page_idx: int, bbox_idx: int) -> Response:
     return Response(content=buf.tobytes(), media_type="image/png")
 
 
+@router.get("/board-cleaned/{page_idx}/{bbox_idx}.png")
+def board_cleaned_endpoint(
+    page_idx: int, bbox_idx: int, peak_thresh: float = 0.3,
+) -> Response:
+    """Crop with detected stones painted out (board color filled in).
+
+    Used by the dev IntersectionTest view to compare classical geometry on the
+    raw vs cleaned crop."""
+    import cv2
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    stone_dets = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    cleaned = paint_out_stones(crop, stone_dets)
+    ok, buf = cv2.imencode(".png", cleaned)
+    if not ok:
+        raise HTTPException(status_code=500, detail="encode failed")
+    return Response(content=buf.tobytes(), media_type="image/png")
+
+
+@router.get("/board-skeleton/{page_idx}/{bbox_idx}.png")
+def board_skeleton_endpoint(
+    page_idx: int, bbox_idx: int, peak_thresh: float = 0.3,
+) -> Response:
+    """Render the actual skeleton the edge detector consumes.
+
+    Stones are painted out, then `_skeletonize` (adaptive threshold +
+    main-CC bbox filter + skimage.skeletonize) produces a 1-px-wide
+    skeleton. This endpoint returns that skeleton as a black-on-white
+    PNG so the dev tool can swap it in place of the cleaned crop.
+    """
+    import cv2
+    import numpy as np
+    from ...ml.edge_detect.tjunction import _skeletonize
+    from ...ml.stone_detect.clean import paint_out_stones
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    stone_dets = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    cleaned = paint_out_stones(crop, stone_dets)
+    skel = _skeletonize(cleaned)
+    img = np.where(skel, 0, 255).astype(np.uint8)
+    ok, buf = cv2.imencode(".png", img)
+    if not ok:
+        raise HTTPException(status_code=500, detail="encode failed")
+    return Response(content=buf.tobytes(), media_type="image/png")
+
+
 @router.get("/board-discretize/{page_idx}/{bbox_idx}",
             response_model=BoardDiscretizeLocal)
 def board_discretize_endpoint(
@@ -153,17 +200,122 @@ def board_intersections_endpoint(
     page_idx: int, bbox_idx: int,
     peak_thresh: float = 0.3,
 ) -> BoardIntersections:
-    """Raw intersection-detector output for a single bbox (dev tool)."""
+    """Mirror of the signals `_discretize_board` consumes.
+
+    Stones (after grid-bbox filter), skeleton edges + junctions, and the
+    fused lattice fit from segments + stones + skeleton junctions inside
+    the grid bbox. Anything outside that path is intentionally omitted —
+    this endpoint exists so the dev tool shows exactly what
+    discretization sees.
+    """
+    from ...ml.edge_detect.skeleton import decide_edges
+    from ...ml.edge_detect.tjunction import main_grid_bbox
+    from ...ml.segments.detect import detect_segments
+    from ...ml.segments.reason import fit_lattice_fused
+    from ...ml.stone_detect.clean import filter_to_grid_bbox
+
     crop, _, _ = _board_crop(page_idx, bbox_idx)
     h, w = crop.shape[:2]
+    stone_dets = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    gbb = main_grid_bbox(crop)
+    stones = filter_to_grid_bbox(stone_dets, gbb)
     try:
-        dets = detect_intersections_cnn(crop, peak_thresh=peak_thresh)
-    except IntersectionModelNotLoaded as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+        skel_result = decide_edges(crop, stones)
+        skel_edges = skel_result.edges
+        skel_junctions_raw = skel_result.junctions
+    except Exception:
+        skel_edges = {"left": False, "right": False, "top": False, "bottom": False}
+        skel_junctions_raw = []
+
+    cleaned_crop = paint_out_stones(crop, stones)
+    segs = detect_segments(cleaned_crop)
+
+    if gbb is not None:
+        gx0, gy0, gx1, gy1 = gbb
+
+        def _seg_in_gbb(s) -> bool:
+            mx, my = 0.5 * (s.x1 + s.x2), 0.5 * (s.y1 + s.y2)
+            return gx0 <= mx <= gx1 and gy0 <= my <= gy1
+
+        segs_for_fit = [s for s in segs if _seg_in_gbb(s)]
+        ix_for_fit = [(j.x, j.y) for j in skel_junctions_raw
+                      if gx0 <= j.x <= gx1 and gy0 <= j.y <= gy1]
+    else:
+        segs_for_fit = segs
+        ix_for_fit = [(j.x, j.y) for j in skel_junctions_raw]
+
+    fused = fit_lattice_fused(
+        segs_for_fit,
+        stone_centers=[(s["x"], s["y"]) for s in stones],
+        intersection_centers=ix_for_fit,
+        crop_w=w, crop_h=h,
+        stone_radii=[s["r"] for s in stones if s.get("r")],
+    )
+    fused_lattice_out = FusedLatticeOut(
+        pitch_x=fused.x.pitch, pitch_y=fused.y.pitch,
+        origin_x=fused.x.origin, origin_y=fused.y.origin,
+        edges=skel_edges,
+    )
     return BoardIntersections(
         page_idx=page_idx, bbox_idx=bbox_idx,
         crop_width=w, crop_height=h,
-        intersections=[IntersectionOut(**d) for d in dets],
+        stones=[
+            StoneCenterOut(x=d["x"], y=d["y"], color=d["color"])
+            for d in stones
+        ],
+        segments=[
+            SegmentOut(x1=s.x1, y1=s.y1, x2=s.x2, y2=s.y2)
+            for s in segs_for_fit
+        ],
+        fused_lattice=fused_lattice_out,
+        skeleton_junctions=[
+            JunctionOut(x=j.x, y=j.y, kind=j.kind, arms=j.arms, outward=list(j.outward))
+            for j in skel_junctions_raw
+        ],
+    )
+
+
+@router.get("/board-tjunctions/{page_idx}/{bbox_idx}",
+            response_model=BoardTJunctionEdges)
+def board_tjunctions_endpoint(
+    page_idx: int, bbox_idx: int,
+    peak_thresh: float = 0.3,
+) -> BoardTJunctionEdges:
+    """Skeleton-topology edge detection (dev tool).
+
+    Pipeline: paint stones out → binarize + skeletonize → count 8-
+    neighbors per skeleton pixel → cluster junction pixels and recover
+    arm directions by walking the skeleton outward → tally per side."""
+    from ...ml.edge_detect.skeleton import decide_edges
+    from ...ml.edge_detect.tjunction import main_grid_bbox
+    from ...ml.stone_detect.clean import filter_to_grid_bbox
+
+    crop, _, _ = _board_crop(page_idx, bbox_idx)
+    h, w = crop.shape[:2]
+    stone_dets = detect_stones_cnn(crop, peak_thresh=peak_thresh)
+    stone_dets = filter_to_grid_bbox(stone_dets, main_grid_bbox(crop))
+    res = decide_edges(crop, stone_dets)
+
+    return BoardTJunctionEdges(
+        page_idx=page_idx, bbox_idx=bbox_idx,
+        crop_width=w, crop_height=h,
+        segments=[],
+        junctions=[
+            JunctionOut(
+                x=j.x, y=j.y, kind=j.kind, arms=j.arms, outward=list(j.outward),
+            ) for j in res.junctions
+        ],
+        sides={
+            s: SideTallyOut(t=t.t, l=t.l, total=t.total)
+            for s, t in res.sides.items()
+        },
+        edges=res.edges,
+        stone_edges=[
+            StoneEdgeClassOut(
+                x=se.x, y=se.y, r=se.r, color=se.color,
+                sides={d: bool(v) for d, v in se.sides.items()},
+            ) for se in res.stone_edges
+        ],
     )
 
 
@@ -185,6 +337,7 @@ def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Itera
     if BBOX_TEST_DIR.exists():
         shutil.rmtree(BBOX_TEST_DIR)
     BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
+    _page_bboxes_cached.cache_clear()
 
     try:
         pdf = pdfium.PdfDocument(io.BytesIO(content))
