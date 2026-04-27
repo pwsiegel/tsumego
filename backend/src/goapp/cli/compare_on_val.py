@@ -25,49 +25,11 @@ import cv2
 
 
 def _run_pipeline(crop_bgr, peak_thresh: float):
-    """Mirror main._discretize_board on a raw crop. Returns a set of
-    (col, row, color) tuples — the final discretized stones."""
-    from ..ml.discretize.discretize import discretize
-    from ..ml.pipeline import _resolve_geometry
-    from ..ml.stone_detect.detect import detect_stones_cnn
+    """Mirror the API's _discretize_board on a raw crop. Returns a set
+    of (col, row, color) tuples — the final discretized stones."""
+    from ..ml.pipeline import discretize_crop
 
-    h, w = crop_bgr.shape[:2]
-    stones = detect_stones_cnn(crop_bgr, peak_thresh=peak_thresh)
-
-    pitch_x, pitch_y, ox, oy, edges = _resolve_geometry(crop_bgr)
-
-    if pitch_x and pitch_y and pitch_x > 0 and pitch_y > 0:
-        BOARD_MAX = 18
-        top_b = (oy - pitch_y * 0.5) if oy is not None else -1e9
-        bot_b = min(h, oy + BOARD_MAX * pitch_y + pitch_y * 0.5) if oy is not None else 1e9
-        left_b = (ox - pitch_x * 0.5) if ox is not None else -1e9
-        right_b = min(w, ox + BOARD_MAX * pitch_x + pitch_x * 0.5) if ox is not None else 1e9
-        stones = [s for s in stones
-                  if top_b <= s["y"] <= bot_b and left_b <= s["x"] <= right_b]
-
-        HOSHI = {(3, 3), (3, 9), (3, 15), (9, 3), (9, 9), (9, 15),
-                 (15, 3), (15, 9), (15, 15)}
-        if ox is not None and oy is not None:
-            vc = max(1, min(19, int((w - 1 - ox) / pitch_x) + 1))
-            vr = max(1, min(19, int((h - 1 - oy) / pitch_y) + 1))
-            cmin = 0 if edges.get("left") else (19 - vc if edges.get("right") else max(0, (19 - vc) // 2))
-            rmin = 0 if edges.get("top") else (19 - vr if edges.get("bottom") else max(0, (19 - vr) // 2))
-            hoshi_r = 0.28 * min(pitch_x, pitch_y)
-            def _not_hoshi(s):
-                cl = max(0, min(vc - 1, int(round((s["x"] - ox) / pitch_x))))
-                rl = max(0, min(vr - 1, int(round((s["y"] - oy) / pitch_y))))
-                if (cmin + cl, rmin + rl) in HOSHI and s.get("r", 0) < hoshi_r:
-                    return False
-                return True
-            stones = [s for s in stones if _not_hoshi(s)]
-
-    pitch = (pitch_x + pitch_y) / 2 if pitch_x and pitch_y else pitch_x or pitch_y
-    d = discretize(
-        stones, w, h, edges=edges,
-        cell_size_override=pitch,
-        pitch_x_override=pitch_x, pitch_y_override=pitch_y,
-        origin_x_override=ox, origin_y_override=oy,
-    )
+    d, _edges = discretize_crop(crop_bgr, peak_thresh=peak_thresh)
     by_cell: dict[tuple[int, int], tuple[float, str]] = {}
     for s in d.stones:
         key = (s.col, s.row)
