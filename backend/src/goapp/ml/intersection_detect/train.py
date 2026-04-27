@@ -53,6 +53,11 @@ INTERSECTION_HALF_FRAC = 0.25
 # pitch-units of it. Stones span ~0.9·pitch, so 0.5·pitch is a clean cut.
 OCCLUSION_PITCH_FRAC = 0.5
 
+# All synth boards are 19×19. Used for "is this cell on the actual board
+# edge?" — needed by --no-edge-labels, which drops T/L corner shapes so the
+# model only ever sees a "+" pattern in training.
+BOARD_SIZE = 19
+
 YOLO_DIR = DATA_DIR / "yolo_intersections"
 STAGED_OUT = MODELS_DIR / "intersection_detector.pt"
 
@@ -67,17 +72,31 @@ def _pitch_from_board(board: dict) -> tuple[float, float]:
     return (x1 - x0) / n_cols, (y1 - y0) / n_rows
 
 
-def _visible_intersections(board: dict) -> list[tuple[float, float]]:
-    """Return page-pixel centers of every visible non-occluded intersection."""
+def _visible_intersections(
+    board: dict,
+    include_edges: bool = True,
+) -> list[tuple[float, float]]:
+    """Return page-pixel centers of every visible non-occluded intersection.
+
+    `include_edges=False` drops cells on the actual board boundary
+    (col_idx ∈ {0, BOARD_SIZE-1} or row_idx ∈ {0, BOARD_SIZE-1}). Those
+    are T/L shapes, not "+", so excluding them lets us train a model that
+    only ever sees the "+" pattern."""
     x0, y0, x1, y1 = board["bbox"]
     col_min, col_max, row_min, row_max = board["window"]
     px, py = _pitch_from_board(board)
     occlusion_r2 = (OCCLUSION_PITCH_FRAC * max(px, py)) ** 2
     stones = board.get("stones", [])
+    edge_max = BOARD_SIZE - 1
 
     out: list[tuple[float, float]] = []
     for r_idx in range(row_min, row_max + 1):
         for c_idx in range(col_min, col_max + 1):
+            if not include_edges and (
+                c_idx == 0 or c_idx == edge_max
+                or r_idx == 0 or r_idx == edge_max
+            ):
+                continue
             cx = x0 + (c_idx - col_min) * px
             cy = y0 + (r_idx - row_min) * py
             occluded = False
@@ -102,7 +121,10 @@ def _emit_box(
     )
 
 
-def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
+def build_yolo_dataset(
+    pages_dir: Path, limit: int | None,
+    include_edges: bool = True,
+) -> Path:
     """Extract per-board crops and emit a YOLO dataset of intersection bboxes."""
     page_jsons = sorted(pages_dir.glob("*.json"))
     if limit:
@@ -157,7 +179,7 @@ def build_yolo_dataset(pages_dir: Path, limit: int | None) -> Path:
         half = max(px, py) * INTERSECTION_HALF_FRAC
 
         lines: list[str] = []
-        for ix, iy in _visible_intersections(board):
+        for ix, iy in _visible_intersections(board, include_edges=include_edges):
             cx = ix - bx0
             cy = iy - by0
             if not (0 <= cx < Cw and 0 <= cy < Ch):
@@ -237,9 +259,17 @@ def main() -> None:
     ap.add_argument("--device", type=str, default=None,
                     help='Training device: "cpu", "mps" (Apple M-series GPU), '
                          '"0" (first CUDA GPU), etc. Default lets Ultralytics choose.')
+    ap.add_argument("--no-edge-labels", action="store_true",
+                    help="Drop labels at the actual go-board edges (T/L shapes), "
+                         "training the model on '+' only. Diagnostic for whether "
+                         "the model is learning bbox-relative layout vs the "
+                         "intersection shape itself.")
     args = ap.parse_args()
 
-    yaml_path = build_yolo_dataset(args.pages, args.limit)
+    yaml_path = build_yolo_dataset(
+        args.pages, args.limit,
+        include_edges=not args.no_edge_labels,
+    )
     train(yaml_path, args.epochs, args.model_out, args.base_model, args.device)
 
 
