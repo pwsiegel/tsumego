@@ -262,20 +262,37 @@ def _draw_figure_label(
     text: str,
     font: ImageFont.ImageFont,
     ink,
+    bordered: bool = True,
 ) -> tuple[int, int, int, int]:
-    """Draw a small bordered rectangle containing `text` centered at
-    `center_xy`. Returns the bbox of the label. Emulates the "1 도",
-    "problem N", "Fig 1" labels above each diagram in real books."""
+    """Draw a caption centered at `center_xy`. Returns the bbox of the
+    drawn text region.
+
+    Two visual styles, both common in real books:
+      - bordered: a small white box with a thin black outline ("1 도",
+        "Fig 1"). Strong visual signal that the text is a separate
+        element from the board.
+      - plain: just the text, no border ("problem 1", "Diagram 3"
+        italic-style captions in cho-chikun and many Western books).
+        The detector has to learn from font/spacing alone that the
+        text is not part of the board."""
     cx, cy = center_xy
     tw = draw.textlength(text, font=font)
     th = font.size
-    pad_x, pad_y = 8, 4
-    x0 = int(cx - tw / 2 - pad_x)
-    y0 = int(cy - th / 2 - pad_y)
-    x1 = int(cx + tw / 2 + pad_x)
-    y1 = int(cy + th / 2 + pad_y)
-    draw.rectangle([(x0, y0), (x1, y1)], outline=ink, fill=(255, 255, 255), width=1)
-    draw.text((x0 + pad_x, y0 + pad_y - 2), text, fill=ink, font=font)
+    if bordered:
+        pad_x, pad_y = 8, 4
+        x0 = int(cx - tw / 2 - pad_x)
+        y0 = int(cy - th / 2 - pad_y)
+        x1 = int(cx + tw / 2 + pad_x)
+        y1 = int(cy + th / 2 + pad_y)
+        draw.rectangle([(x0, y0), (x1, y1)], outline=ink, fill=(255, 255, 255), width=1)
+        draw.text((x0 + pad_x, y0 + pad_y - 2), text, fill=ink, font=font)
+        return (x0, y0, x1, y1)
+    # Plain caption: just the text. No padding/border.
+    x0 = int(cx - tw / 2)
+    y0 = int(cy - th / 2)
+    x1 = int(cx + tw / 2)
+    y1 = int(cy + th / 2)
+    draw.text((x0, y0 - 2), text, fill=ink, font=font)
     return (x0, y0, x1, y1)
 
 
@@ -678,9 +695,22 @@ def _render_problems(
         "outer_border": rng.random() < 0.25,
         "jitter": rng.random() < 0.75,
         "figure_labels": rng.random() < 0.5,
+        # Where the figure label sits relative to the board. Real books
+        # are split: cho-chikun puts captions exclusively below boards,
+        # most Korean books above. Picking once per page keeps a single
+        # synth page visually consistent (one "book" per page).
+        "figure_label_pos": rng.choice(("above", "below")),
         "problem_badges": rng.random() < 0.4,
         "corner_problem_badges": rng.random() < 0.25,
         "footer_ornament": rng.random() < 0.4,
+        # Per-page probability that each board grows an explanation
+        # paragraph between the caption row and the grid (hm2-style).
+        "explanation_above_prob": rng.uniform(0.0, 0.5),
+        # Whether figure labels use the bordered "Fig 1" box style or the
+        # plain italic-text style ("problem 1", common in cho-chikun and
+        # many Western books). Choosing per page keeps the same book-level
+        # visual consistency as figure_label_pos.
+        "figure_label_bordered": rng.random() < 0.4,
     }
     rule_ink = (60, 60, 60)
 
@@ -745,14 +775,62 @@ def _render_problems(
             inner_jx = rng.randint(-10, 10) if page_style["jitter"] else 0
             inner_jy = rng.randint(-6, 10) if page_style["jitter"] else 0
             board_x = cx0 + (cell_w - rb.image.width) // 2 + inner_jx
-            board_y = caption_y + caption_font.size + 8 + inner_jy
-            # Reserve space above the board for an optional figure label.
-            if page_style["figure_labels"]:
-                board_y += small_font.size + 14
+
+            # Per-board distance jitter: some boards have text crowding the
+            # grid, others have generous whitespace. The detector needs to
+            # see both extremes so it learns "tight bbox stops at the grid
+            # lines" instead of "stops at the nearest whitespace gap".
+            gap_caption_to_board = rng.randint(4, 24)
+            gap_board_to_text = rng.randint(2, 22)
+            gap_label_to_board = rng.randint(4, 14)
+
+            # Whether THIS board gets an explanation paragraph above the
+            # grid (between the caption row and the board, hm2-style).
+            include_explanation_above = (
+                rng.random() < page_style["explanation_above_prob"]
+            )
+
+            label_above = (
+                page_style["figure_labels"]
+                and page_style["figure_label_pos"] == "above"
+            )
+            label_below = (
+                page_style["figure_labels"]
+                and page_style["figure_label_pos"] == "below"
+            )
+
+            # Reserve vertical space above the board, in stack order
+            # going UP from the board: figure label → explanation → caption.
+            label_above_h = (
+                small_font.size + gap_label_to_board + 10
+                if label_above else 0
+            )
+            explanation_h = 0
+            explanation_gap = 0
+            explanation_text: str | None = None
+            if include_explanation_above:
+                explanation_text = make_paragraph(lang, rng.randint(12, 30), rng)
+                explanation_h = (body_font.size + 4) * rng.randint(2, 4) + 8
+                explanation_gap = rng.randint(4, 14)
+
+            space_above = (
+                gap_caption_to_board
+                + label_above_h
+                + explanation_h
+                + explanation_gap
+            )
+
+            board_y = caption_y + caption_font.size + space_above + inner_jy
             if board_y + rb.image.height > cy0 + cell_h - 40:
+                # Cell too tight for everything we wanted above the board —
+                # drop the optional extras and re-anchor near the top.
                 board_y = cy0 + 4 + inner_jy
-                if page_style["figure_labels"]:
-                    board_y += small_font.size + 14
+                label_above = False
+                label_above_h = 0
+                include_explanation_above = False
+                explanation_text = None
+                explanation_h = 0
+                explanation_gap = 0
             board_x = max(margin, min(W - margin - rb.image.width, board_x))
             board_y = max(grid_top, min(H - margin - rb.image.height, board_y))
             img.paste(rb.image, (board_x, board_y))
@@ -766,18 +844,45 @@ def _render_problems(
                     outline=rule_ink, width=1,
                 )
 
-            # Figure label above the board, drawn AFTER the board so the
-            # label never overlaps the board's tight bbox.
+            # Explanation paragraph sits above the figure-label region (if
+            # present) so they don't collide. Drawn AFTER the board so any
+            # last-line bleed lands on the bg, never inside the bbox.
+            if explanation_text is not None:
+                expl_bottom = board_y - label_above_h - explanation_gap
+                expl_y = expl_bottom - explanation_h
+                _draw_wrapped(
+                    draw, (cx0 + jitter_x + 4, expl_y),
+                    cell_w - 16, explanation_h,
+                    explanation_text, body_font, (50, 50, 50),
+                )
+
+            # Figure label, drawn AFTER the board so it never overlaps the
+            # tight bbox. Position and border-style are sampled once per
+            # page so a single page is visually consistent.
             if page_style["figure_labels"]:
                 label_text = rng.choice([
                     f"{problem_num} 도", f"Fig {problem_num}",
                     f"problem {problem_num}", f"Dia {problem_num}",
+                    f"Diagram {problem_num}", f"({problem_num})",
+                    f"{problem_num}.", f"No. {problem_num}",
+                    f"Problem {problem_num}: black to play",
                 ])
-                _draw_figure_label(
-                    draw,
-                    (board_x + rb.image.width // 2, board_y - small_font.size),
-                    label_text, small_font, rule_ink,
-                )
+                if label_above:
+                    label_cy = board_y - small_font.size // 2 - gap_label_to_board
+                elif label_below:
+                    label_cy = (
+                        board_y + rb.image.height
+                        + small_font.size // 2 + gap_label_to_board
+                    )
+                else:
+                    label_cy = None
+                if label_cy is not None:
+                    _draw_figure_label(
+                        draw,
+                        (board_x + rb.image.width // 2, label_cy),
+                        label_text, small_font, rule_ink,
+                        bordered=page_style["figure_label_bordered"],
+                    )
 
             # Corner-anchored numbered badge. Drawn AFTER the board so it
             # can sit on or just above the top-left frame intersection,
@@ -839,8 +944,11 @@ def _render_problems(
                 corner_centers=corner_centers,
             ))
 
-            # Question / answer text under the board.
-            text_y = board_y + rb.image.height + 8
+            # Question / answer text under the board. Leaves room for a
+            # below-board figure label when present.
+            text_y = board_y + rb.image.height + gap_board_to_text
+            if label_below:
+                text_y += small_font.size + gap_label_to_board + 10
             text_h = cy0 + cell_h - text_y - 10
             if text_h > body_font.size:
                 question = make_paragraph(lang, rng.randint(8, 18), rng)
