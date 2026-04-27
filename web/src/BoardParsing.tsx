@@ -114,6 +114,18 @@ export function BoardParsing({ onExit }: Props) {
     color: s.color === 'B' ? 'B' : 'W',
   }));
 
+  // Crop the rendered board to ~2 cells past the stones on each side.
+  // Reveals the local context the player cares about without showing
+  // 19x19 of empty space when a corner problem covers a third of the
+  // board.
+  const PAD = 2;
+  const viewport = sgfStones.length > 0 ? {
+    colMin: Math.max(0, Math.min(...sgfStones.map((s) => s.x)) - PAD),
+    colMax: Math.min(18, Math.max(...sgfStones.map((s) => s.x)) + PAD),
+    rowMin: Math.max(0, Math.min(...sgfStones.map((s) => s.y)) - PAD),
+    rowMax: Math.min(18, Math.max(...sgfStones.map((s) => s.y)) + PAD),
+  } : undefined;
+
   return (
     <div className="bp-test">
       <div className="bp-toolbar">
@@ -178,7 +190,7 @@ export function BoardParsing({ onExit }: Props) {
       {current && W > 0 && H > 0 && (
         <>
           <div className="bp-stage">
-            <div className="bp-panel" style={{ aspectRatio: `${W} / ${H}` }}>
+            <div className="bp-panel">
               <img
                 src={api.pdf.boardCropUrl(current.page_idx, current.bbox_idx)}
                 alt={`page ${current.page_idx + 1} bbox ${current.bbox_idx}`}
@@ -207,14 +219,13 @@ export function BoardParsing({ onExit }: Props) {
                 </svg>
               )}
             </div>
-            <div className="bp-panel" style={{ aspectRatio: `${W} / ${H}` }}>
-              {showSkeleton && (
-                <img
-                  src={api.pdf.boardSkeletonUrl(current.page_idx, current.bbox_idx)}
-                  alt={`skeleton ${current.page_idx + 1}/${current.bbox_idx}`}
-                  className="bp-img"
-                />
-              )}
+            <div className="bp-panel">
+              <img
+                src={api.pdf.boardSkeletonUrl(current.page_idx, current.bbox_idx)}
+                alt={`skeleton ${current.page_idx + 1}/${current.bbox_idx}`}
+                className="bp-img"
+                style={{ visibility: showSkeleton ? 'visible' : 'hidden' }}
+              />
               {ix && (
                 <FeatureOverlay
                   W={W} H={H}
@@ -229,7 +240,7 @@ export function BoardParsing({ onExit }: Props) {
 
           <div className="bp-board">
             {disc && (
-              <Board stones={sgfStones} onPlay={() => {}} displayOnly />
+              <Board stones={sgfStones} onPlay={() => {}} displayOnly viewport={viewport} />
             )}
           </div>
         </>
