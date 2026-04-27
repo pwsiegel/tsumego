@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from ...paths import DATA_DIR
 
@@ -129,12 +129,87 @@ def val_image_endpoint(dataset: str, stem: str) -> Response:
     return Response(content=path.read_bytes(), media_type="image/png")
 
 
-@router.get("/{dataset}/run")
-def val_run_endpoint(dataset: str, status: str = "accepted") -> Response:
-    """Run the live pipeline against every problem in the validation set."""
+def _process_problem(val_dir, entry) -> dict:
+    """Run the live pipeline on one validation entry and shape the
+    per-problem result the way the web view expects."""
     import json as _json
     import cv2
     from ...cli.compare_on_val import _run_pipeline
+
+    stem = entry["stem"]
+    meta_path = val_dir / "metadata" / f"{stem}.json"
+    if not meta_path.exists():
+        return {"stem": stem, "status": "error", "error": "metadata not found"}
+    meta = _json.loads(meta_path.read_text())
+    gt = {(s["col"], s["row"], s["color"]) for s in meta.get("stones", [])}
+
+    img_path = val_dir / "images" / f"{stem}.png"
+    crop = cv2.imread(str(img_path))
+    if crop is None:
+        return {"stem": stem, "status": "error", "error": "image not found"}
+
+    try:
+        pred = _run_pipeline(crop, peak_thresh=0.3)
+    except Exception as e:
+        return {"stem": stem, "status": "error", "error": str(e)}
+
+    if pred == gt:
+        return {"stem": stem, "status": "exact"}
+
+    missed = gt - pred
+    extra = pred - gt
+    gt_pos = {(c, r): col for (c, r, col) in gt}
+    pred_pos = {(c, r): col for (c, r, col) in pred}
+    flips = [
+        {"col": c, "row": r, "gt_color": gt_pos[(c, r)], "pred_color": pred_pos[(c, r)]}
+        for (c, r) in gt_pos.keys() & pred_pos.keys()
+        if gt_pos[(c, r)] != pred_pos[(c, r)]
+    ]
+    flip_positions = {(f["col"], f["row"]) for f in flips}
+    missed = [{"col": c, "row": r, "color": col}
+              for (c, r, col) in sorted(missed) if (c, r) not in flip_positions]
+    extra = [{"col": c, "row": r, "color": col}
+             for (c, r, col) in sorted(extra) if (c, r) not in flip_positions]
+
+    gt_stones = [{"col": s["col"], "row": s["row"], "color": s["color"]}
+                 for s in meta.get("stones", [])]
+    pred_stones = [{"col": c, "row": r, "color": col}
+                   for (c, r, col) in sorted(pred)]
+
+    return {
+        "stem": stem,
+        "status": "changed",
+        "gt_count": len(gt),
+        "pred_count": len(pred),
+        "missed": missed,
+        "extra": extra,
+        "flips": flips,
+        "gt_stones": gt_stones,
+        "pred_stones": pred_stones,
+    }
+
+
+VAL_WORKERS = 4  # parallelism for per-problem pipeline runs
+
+
+@router.get("/{dataset}/run")
+def val_run_endpoint(dataset: str, status: str = "accepted") -> StreamingResponse:
+    """Stream pipeline results as NDJSON so the web view can render a
+    progress bar that ticks per problem.
+
+    Pipeline runs are fanned out across a small thread pool —
+    discretize_crop is GIL-light (cv2 + ultralytics inference release
+    the GIL), so threads give real speedup without the model-load
+    cost of separate processes. Events arrive in completion order,
+    not submission order; each carries its own stem.
+
+    Wire format (one JSON object per line):
+      {"event":"start","total":N,"dataset":...,"filter_status":...}
+      {"event":"problem","result":{...}}    # one per problem
+      {"event":"done","exact":N,"changed":N,"errors":N}
+    """
+    import json as _json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     val_dir = DATA_DIR / "val" / dataset
     manifest_path = val_dir / "manifest.json"
@@ -147,72 +222,29 @@ def val_run_endpoint(dataset: str, status: str = "accepted") -> Response:
     else:
         entries = [p for p in manifest["problems"] if p["status"] == status]
 
-    results: list[dict] = []
-    exact = 0
-    for entry in entries:
-        stem = entry["stem"]
-        meta_path = val_dir / "metadata" / f"{stem}.json"
-        if not meta_path.exists():
-            results.append({"stem": stem, "status": "error", "error": "metadata not found"})
-            continue
-        meta = _json.loads(meta_path.read_text())
-        gt = {(s["col"], s["row"], s["color"]) for s in meta.get("stones", [])}
+    def generate():
+        yield _json.dumps({
+            "event": "start",
+            "total": len(entries),
+            "dataset": dataset,
+            "filter_status": status,
+        }) + "\n"
+        exact = changed = errors = 0
+        workers = max(1, min(VAL_WORKERS, len(entries)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_process_problem, val_dir, e) for e in entries]
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result["status"] == "exact":
+                    exact += 1
+                elif result["status"] == "changed":
+                    changed += 1
+                else:
+                    errors += 1
+                yield _json.dumps({"event": "problem", "result": result}) + "\n"
+        yield _json.dumps({
+            "event": "done",
+            "exact": exact, "changed": changed, "errors": errors,
+        }) + "\n"
 
-        img_path = val_dir / "images" / f"{stem}.png"
-        crop = cv2.imread(str(img_path))
-        if crop is None:
-            results.append({"stem": stem, "status": "error", "error": "image not found"})
-            continue
-
-        try:
-            pred = _run_pipeline(crop, peak_thresh=0.3)
-        except Exception as e:
-            results.append({"stem": stem, "status": "error", "error": str(e)})
-            continue
-
-        if pred == gt:
-            exact += 1
-            results.append({"stem": stem, "status": "exact"})
-        else:
-            missed = gt - pred
-            extra = pred - gt
-            gt_pos = {(c, r): col for (c, r, col) in gt}
-            pred_pos = {(c, r): col for (c, r, col) in pred}
-            flips = [
-                {"col": c, "row": r, "gt_color": gt_pos[(c, r)], "pred_color": pred_pos[(c, r)]}
-                for (c, r) in gt_pos.keys() & pred_pos.keys()
-                if gt_pos[(c, r)] != pred_pos[(c, r)]
-            ]
-            flip_positions = {(f["col"], f["row"]) for f in flips}
-            missed = [{"col": c, "row": r, "color": col}
-                      for (c, r, col) in sorted(missed) if (c, r) not in flip_positions]
-            extra = [{"col": c, "row": r, "color": col}
-                     for (c, r, col) in sorted(extra) if (c, r) not in flip_positions]
-
-            gt_stones = [{"col": s["col"], "row": s["row"], "color": s["color"]}
-                         for s in meta.get("stones", [])]
-            pred_stones = [{"col": c, "row": r, "color": col}
-                           for (c, r, col) in sorted(pred)]
-
-            results.append({
-                "stem": stem,
-                "status": "changed",
-                "gt_count": len(gt),
-                "pred_count": len(pred),
-                "missed": missed,
-                "extra": extra,
-                "flips": flips,
-                "gt_stones": gt_stones,
-                "pred_stones": pred_stones,
-            })
-
-    body = {
-        "dataset": dataset,
-        "filter_status": status,
-        "total": len(entries),
-        "exact": exact,
-        "changed": sum(1 for r in results if r["status"] == "changed"),
-        "errors": sum(1 for r in results if r["status"] == "error"),
-        "problems": results,
-    }
-    return Response(content=_json.dumps(body), media_type="application/json")
+    return StreamingResponse(generate(), media_type="application/x-ndjson")

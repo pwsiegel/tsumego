@@ -8,6 +8,12 @@ import {
   type Junction,
   type Segment,
 } from './api';
+
+type IngestProgress = {
+  stage: 'render' | 'detect';
+  done: number;
+  total: number;
+};
 import type { Stone } from './types';
 import './BoardParsing.css';
 
@@ -22,6 +28,7 @@ export function BoardParsing({ onExit }: Props) {
   const [loading, setLoading] = useState(false);
   const [peakThresh, setPeakThresh] = useState<number>(0.3);
   const [status, setStatus] = useState<string | null>(null);
+  const [progress, setProgress] = useState<IngestProgress | null>(null);
 
   // Layer toggles. Stones overlay is on the PDF (left); the other four
   // are independent overlays on the right panel.
@@ -81,16 +88,40 @@ export function BoardParsing({ onExit }: Props) {
   }, [boards, safeSelected, peakThresh]);
 
   const uploadPdf = async (file: File) => {
+    // Clear stale state immediately so we don't show the previous PDF's
+    // boards/overlays while the new upload is being processed.
+    inFlight.current = null;
+    setBoards([]);
+    setIx(null);
+    setDisc(null);
+    setSelected(0);
     setUploading(true);
     setStatus(`Uploading ${file.name}…`);
+    setProgress({ stage: 'render', done: 0, total: 0 });
+
+    const accumulated: BoardListItem[] = [];
     try {
-      const data = await api.pdf.uploadPdf(file);
-      setStatus(`${file.name}: ${data.page_count} pages.`);
-      await refreshBoards();
+      await api.pdf.uploadPdfStream(file, (event) => {
+        if (event.event === 'start') {
+          setProgress({ stage: event.stage, done: 0, total: event.total });
+        } else if (event.event === 'page-rendered') {
+          setProgress((p) => p ? { ...p, done: p.done + 1 } : p);
+        } else if (event.event === 'page-detected') {
+          accumulated.push(...event.boards);
+          setProgress((p) => p ? { ...p, done: p.done + 1 } : p);
+        } else if (event.event === 'done') {
+          setStatus(`${file.name}: ${event.page_count} pages, ${event.board_count} boards.`);
+        } else if (event.event === 'error') {
+          setStatus(`Error: ${event.message}`);
+        }
+      });
+      setBoards(accumulated);
+      setSelected(0);
     } catch (e) {
       setStatus(`Error: ${e}`);
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
 
@@ -187,6 +218,8 @@ export function BoardParsing({ onExit }: Props) {
 
       {status && <div className="bp-message">{status}</div>}
 
+      {progress && <IngestProgressBar progress={progress} />}
+
       {current && W > 0 && H > 0 && (
         <>
           <div className="bp-stage">
@@ -248,6 +281,22 @@ export function BoardParsing({ onExit }: Props) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function IngestProgressBar({ progress }: { progress: IngestProgress }) {
+  const { stage, done, total } = progress;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const label = stage === 'render' ? 'Rendering pages' : 'Detecting boards';
+  return (
+    <div className="bp-progress">
+      <div className="bp-progress-label">
+        {label}: {done} / {total || '?'} ({pct}%)
+      </div>
+      <div className="bp-progress-track">
+        <div className="bp-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }

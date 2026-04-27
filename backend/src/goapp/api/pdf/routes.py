@@ -83,6 +83,83 @@ async def bbox_upload_endpoint(file: UploadFile = File(...)) -> BboxUploadRespon
     return BboxUploadResponse(page_count=len(pdf))
 
 
+@router.post("/bbox-ingest-stream")
+async def bbox_ingest_stream_endpoint(file: UploadFile = File(...)) -> StreamingResponse:
+    """Upload + render + detect in one streaming pass.
+
+    Wire format (NDJSON, one event per line):
+      {"event":"start","stage":"render","total":N}
+      {"event":"page-rendered","index":i}            # one per page
+      {"event":"start","stage":"detect","total":N}
+      {"event":"page-detected","index":i,"boards":[...]}  # one per page
+      {"event":"done","page_count":N,"board_count":M}
+
+    Each `boards` payload is a list of BoardListItem dicts so the web
+    view can build the full boards list incrementally without a
+    separate /boards round-trip.
+    """
+    import io
+    import json as _json
+    import shutil
+    import cv2
+    import numpy as np
+    import pypdfium2 as pdfium
+    from ...ml.board_detect.detect import ModelNotLoaded
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    if BBOX_TEST_DIR.exists():
+        shutil.rmtree(BBOX_TEST_DIR)
+    BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
+    _page_bboxes_cached.cache_clear()
+
+    try:
+        pdf = pdfium.PdfDocument(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid PDF: {e}") from e
+    n_pages = len(pdf)
+
+    def generate():
+        yield _json.dumps({"event": "start", "stage": "render", "total": n_pages}) + "\n"
+        for i in range(n_pages):
+            pil_img = pdf[i].render(scale=2.0).to_pil()
+            img_bgr = np.array(pil_img)[..., ::-1].copy()
+            ok, buf = cv2.imencode(".png", img_bgr)
+            if ok:
+                (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
+            yield _json.dumps({"event": "page-rendered", "index": i}) + "\n"
+
+        yield _json.dumps({"event": "start", "stage": "detect", "total": n_pages}) + "\n"
+        board_count = 0
+        for i in range(n_pages):
+            page_path = BBOX_TEST_DIR / f"page_{i:04d}.png"
+            if not page_path.exists():
+                yield _json.dumps({"event": "page-detected", "index": i, "boards": []}) + "\n"
+                continue
+            try:
+                bboxes = _page_bboxes_cached(str(page_path), page_path.stat().st_mtime_ns)
+            except ModelNotLoaded as e:
+                yield _json.dumps({"event": "error", "message": str(e)}) + "\n"
+                return
+            page_boards = [{
+                "page_idx": i, "bbox_idx": j,
+                "x0": b.x0, "y0": b.y0, "x1": b.x1, "y1": b.y1,
+                "confidence": b.confidence,
+            } for j, b in enumerate(bboxes)]
+            board_count += len(page_boards)
+            yield _json.dumps({"event": "page-detected", "index": i, "boards": page_boards}) + "\n"
+
+        yield _json.dumps({
+            "event": "done",
+            "page_count": n_pages,
+            "board_count": board_count,
+        }) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
 @router.get("/bbox-page/{page_idx}.png")
 def bbox_page_endpoint(page_idx: int) -> Response:
     path = BBOX_TEST_DIR / f"page_{page_idx:04d}.png"

@@ -78,6 +78,13 @@ export type BoardListItem = {
   confidence: number;
 };
 
+export type IngestStreamEvent =
+  | { event: 'start'; stage: 'render' | 'detect'; total: number }
+  | { event: 'page-rendered'; index: number }
+  | { event: 'page-detected'; index: number; boards: BoardListItem[] }
+  | { event: 'done'; page_count: number; board_count: number }
+  | { event: 'error'; message: string };
+
 export type DiscretizedStone = {
   x: number;
   y: number;
@@ -218,6 +225,11 @@ export type RunResult = {
   errors: number;
   problems: ProblemResult[];
 };
+
+export type ValStreamEvent =
+  | { event: 'start'; total: number; dataset: string; filter_status: string }
+  | { event: 'problem'; result: ProblemResult }
+  | { event: 'done'; exact: number; changed: number; errors: number };
 
 // One entry in the gt-edits log. Only `length` is consumed today, but the
 // shape is documented here so future readers know what the endpoint returns.
@@ -386,6 +398,40 @@ export const api = {
       form.append('file', file, file.name);
       return request<BboxUploadResponse>('/api/pdf/bbox-upload', { method: 'POST', body: form });
     },
+    /** Streaming upload + render + board detection. Calls `onEvent` for
+     * each NDJSON event (one per rendered/detected page plus phase
+     * markers). Resolves on stream close. */
+    async uploadPdfStream(
+      file: File,
+      onEvent: (event: IngestStreamEvent) => void,
+      opts: { signal?: AbortSignal } = {},
+    ): Promise<void> {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch('/api/pdf/bbox-ingest-stream', {
+        method: 'POST', body: form, signal: opts.signal,
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`upload stream failed: ${res.status} ${res.statusText}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl = buf.indexOf('\n');
+        while (nl !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (line) onEvent(JSON.parse(line) as IngestStreamEvent);
+          nl = buf.indexOf('\n');
+        }
+      }
+      const tail = buf.trim();
+      if (tail) onEvent(JSON.parse(tail) as IngestStreamEvent);
+    },
     detectBboxes(pageIdx: number): Promise<BboxDetectResponse> {
       return request<BboxDetectResponse>(`/api/pdf/bbox-detect/${pageIdx}?${bust()}`, NO_STORE);
     },
@@ -479,8 +525,41 @@ export const api = {
     ): Promise<{ ok: boolean; stem: string; stones: ServerStone[] }> {
       return postJson(`/api/val/${dataset}/problems/${stem}/stones`, { stones });
     },
-    runValidation(dataset: string, status: string = 'accepted'): Promise<RunResult> {
-      return request<RunResult>(`/api/val/${dataset}/run?status=${status}`);
+    /** Stream validation results as NDJSON, one event per line. The
+     * caller's `onEvent` is called as each line lands so a progress bar
+     * can tick per problem; the returned promise resolves on stream
+     * close. Pass an AbortSignal to cancel mid-flight (e.g. when the
+     * user navigates away). */
+    async runValidationStream(
+      dataset: string,
+      onEvent: (event: ValStreamEvent) => void,
+      opts: { status?: string; signal?: AbortSignal } = {},
+    ): Promise<void> {
+      const status = opts.status ?? 'accepted';
+      const res = await fetch(
+        `/api/val/${dataset}/run?status=${status}`,
+        { signal: opts.signal },
+      );
+      if (!res.ok || !res.body) {
+        throw new Error(`validation stream failed: ${res.status} ${res.statusText}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl = buf.indexOf('\n');
+        while (nl !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (line) onEvent(JSON.parse(line) as ValStreamEvent);
+          nl = buf.indexOf('\n');
+        }
+      }
+      const tail = buf.trim();
+      if (tail) onEvent(JSON.parse(tail) as ValStreamEvent);
     },
     imageUrl(dataset: string, stem: string): string {
       return `/api/val/${dataset}/images/${stem}.png`;

@@ -13,6 +13,7 @@ import './Validate.css';
 
 type RunState =
   | { kind: 'error'; dataset: string; message: string }
+  | { kind: 'running'; dataset: string; total: number | null; problems: ProblemResult[] }
   | { kind: 'success'; dataset: string; result: RunResult };
 
 export function Validate() {
@@ -23,11 +24,40 @@ export function Validate() {
 
   useEffect(() => {
     if (!dataset) return;
-    let cancelled = false;
-    api.val.runValidation(dataset)
-      .then((data) => { if (!cancelled) setState({ kind: 'success', dataset, result: data }); })
-      .catch((e) => { if (!cancelled) setState({ kind: 'error', dataset, message: String(e) }); });
-    return () => { cancelled = true; };
+    const ac = new AbortController();
+    setState({ kind: 'running', dataset, total: null, problems: [] });
+
+    let total: number | null = null;
+    let filterStatus = 'accepted';
+    const problems: ProblemResult[] = [];
+
+    api.val.runValidationStream(dataset, (event) => {
+      if (ac.signal.aborted) return;
+      if (event.event === 'start') {
+        total = event.total;
+        filterStatus = event.filter_status;
+        setState({ kind: 'running', dataset, total, problems: [...problems] });
+      } else if (event.event === 'problem') {
+        problems.push(event.result);
+        setState({ kind: 'running', dataset, total, problems: [...problems] });
+      } else if (event.event === 'done') {
+        setState({
+          kind: 'success', dataset,
+          result: {
+            dataset, filter_status: filterStatus,
+            total: total ?? problems.length,
+            exact: event.exact, changed: event.changed, errors: event.errors,
+            problems: [...problems],
+          },
+        });
+      }
+    }, { signal: ac.signal })
+      .catch((e) => {
+        if (ac.signal.aborted) return;
+        setState({ kind: 'error', dataset, message: String(e) });
+      });
+
+    return () => { ac.abort(); };
   }, [dataset]);
 
   // While the dataset URL param has changed but the new fetch hasn't landed
@@ -36,7 +66,7 @@ export function Validate() {
     return (
       <div className="validate">
         <h1>Validation: {dataset}</h1>
-        <p className="loading">Running pipeline on all problems...</p>
+        <p className="loading">Starting pipeline...</p>
       </div>
     );
   }
@@ -46,6 +76,27 @@ export function Validate() {
       <div className="validate">
         <h1>Validation: {dataset}</h1>
         <p className="error">Error: {state.message}</p>
+      </div>
+    );
+  }
+
+  if (state.kind === 'running') {
+    const done = state.problems.length;
+    const total = state.total;
+    const pct = total && total > 0 ? Math.round((done / total) * 100) : 0;
+    return (
+      <div className="validate">
+        <h1>Validation: {dataset}</h1>
+        <div className="progress-wrap">
+          <div className="progress-label">
+            {total === null
+              ? 'Starting...'
+              : `Processed ${done} / ${total} (${pct}%)`}
+          </div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+        </div>
       </div>
     );
   }
