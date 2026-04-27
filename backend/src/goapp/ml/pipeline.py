@@ -106,9 +106,11 @@ def discretize_crop(crop_bgr, peak_thresh: float = 0.3):
     try:
         skel = decide_edges(crop_bgr, stones)
         edges = skel.edges
+        edge_positions = skel.edge_positions
         ix_centers = [(j.x, j.y) for j in skel.junctions]
     except Exception:
         edges = {"left": False, "right": False, "top": False, "bottom": False}
+        edge_positions = {"left": None, "right": None, "top": None, "bottom": None}
         ix_centers = []
 
     # Paint stones out before segment extraction — stone outlines otherwise
@@ -141,6 +143,34 @@ def discretize_crop(crop_bgr, peak_thresh: float = 0.3):
     )
     pitch_x, pitch_y = fused.x.pitch, fused.y.pitch
     ox, oy = fused.x.origin, fused.y.origin
+
+    # Edge-anchored override. The 1D origin search in segment-fit can
+    # land off-by-one on curved scans (page-spine bow): multiple phase
+    # offsets fit the warped grid almost equally well, and snap residual
+    # alone doesn't break the tie. When the edge classifier has located
+    # the actual board boundary in pixels, we use it as a hard constraint
+    # — both edges on an axis pin pitch and origin exactly (board spans
+    # 18 cells from edge to edge); a single edge pins origin and reuses
+    # the fitted pitch.
+    left_x = edge_positions.get("left")
+    right_x = edge_positions.get("right")
+    top_y = edge_positions.get("top")
+    bottom_y = edge_positions.get("bottom")
+    if left_x is not None and right_x is not None and right_x > left_x:
+        pitch_x = (right_x - left_x) / 18.0
+        ox = left_x
+    elif left_x is not None and pitch_x and pitch_x > 0:
+        ox = left_x
+    elif right_x is not None and pitch_x and pitch_x > 0:
+        ox = right_x - 18.0 * pitch_x
+    if top_y is not None and bottom_y is not None and bottom_y > top_y:
+        pitch_y = (bottom_y - top_y) / 18.0
+        oy = top_y
+    elif top_y is not None and pitch_y and pitch_y > 0:
+        oy = top_y
+    elif bottom_y is not None and pitch_y and pitch_y > 0:
+        oy = bottom_y - 18.0 * pitch_y
+
     if pitch_x is not None and pitch_y is not None and pitch_x > 0 and pitch_y > 0:
         BOARD_MAX = 18
         top_b = (oy - pitch_y * 0.5) if oy is not None else -1e9

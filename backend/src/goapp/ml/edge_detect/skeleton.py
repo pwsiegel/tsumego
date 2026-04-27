@@ -69,6 +69,11 @@ _SIDE_TO_DIR = {"left": "W", "right": "E", "top": "N", "bottom": "S"}
 @dataclass(frozen=True)
 class SkeletonEdgeResult:
     edges: dict[str, bool]
+    # Pixel position of each detected edge: x for "left"/"right", y for
+    # "top"/"bottom". None when the side wasn't accepted as a real edge.
+    # Lets downstream lattice fitting hard-anchor origin/pitch instead of
+    # relying on a 1D phase search that can land off-by-one on curved scans.
+    edge_positions: dict[str, float | None]
     junctions: list[Junction]   # painted-disc artifacts already filtered
     sides: dict[str, SideTally]  # tallies from the filtered junctions
     stone_edges: list[StoneEdgeClass]
@@ -110,6 +115,9 @@ def decide_edges(
     # adaptive-threshold params as the skeletonizer, so what we count
     # as "ink past the edge" matches what produced the junctions.
     bi = _binarize(crop_bgr)
+    edge_positions: dict[str, float | None] = {
+        "left": None, "right": None, "top": None, "bottom": None,
+    }
     for side in ("left", "right", "top", "bottom"):
         if not edges[side]:
             continue
@@ -126,10 +134,13 @@ def decide_edges(
         # the latter rejects the edge.
         if _outward_has_grid(bi, side, ep, grid_bbox, margin, pitch):
             edges[side] = False
+            continue
+        edge_positions[side] = float(ep)
 
     sides, _ = tally_edges(junctions, w, h)
     return SkeletonEdgeResult(
-        edges=edges, junctions=junctions, sides=sides,
+        edges=edges, edge_positions=edge_positions,
+        junctions=junctions, sides=sides,
         stone_edges=stone_edges,
     )
 

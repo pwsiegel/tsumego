@@ -681,6 +681,45 @@ in the 20–27 range, all stones inside expected windows). Status:
 
 ---
 
+## 2026-04-27 — edge-anchored origin/pitch (curvature-driven phase shifts)
+
+**Problem.** On the hm2 val set, 27 of 124 problems were "changed" (pred
+≠ GT). Inspection showed a dominant pattern: every detected stone in a
+problem shifted by ±1 (sometimes ±2) columns, all the same direction.
+Cases: hm2_0140 (left −1), hm2_0142 (right +1), hm2_0134 (left −2),
+hm2_0021 (left −1), hm2_0061 (X+Y both shifted), several more. Lattice
+geometry diagnostics: `edges` fired correctly for left+right+top+bottom
+in most of these, but `visible_cols` came back 17 or 18 — inconsistent
+with both edges being detected (must be 19). All affected images had
+visible page-spine bow / barrel curvature.
+
+**Root cause.** `fit_lattice_fused`'s 1D origin search fits a uniform-
+pitch grid by minimizing snap residual against segments + stones +
+junctions. On a curved board, the residual is smeared enough that
+multiple phase offsets (off by whole pitches) score similarly, and the
+search lands on a wrong phase. `discretize._place_window` then honors
+`left=True` by setting `col_min=0`, but the lattice it received was
+already misaligned, so the wrong physical column gets called col 0.
+Edge bits alone weren't enough to disambiguate — what was missing was
+the *position* of each edge.
+
+**Fix.** `decide_edges` already computes the pixel position of each
+accepted edge internally (via `_edge_position`, used to validate the
+edge against ink-past-the-line). Expose it on `SkeletonEdgeResult.
+edge_positions: dict[str, float | None]`. In `discretize_crop`, use as
+hard constraints: when both edges of an axis are detected,
+`pitch = (far − near) / 18` and `origin = near`; when only one edge is
+detected, anchor origin to it and keep the fitted pitch. Removes the
+phase ambiguity entirely on boards with ≥1 detected edge per axis.
+
+**Result.** hm2 val: 97/124 → 120/124 exact (78.2% → 96.8%). Of the 4
+remaining changed cases, 3 are extras-only (annotation-glyph false
+positives — known issue, deferred) and 1 is a single missed stone
+(stone-detector recall, orthogonal). No regressions on the 97
+previously-exact problems. Status: **in use**.
+
+---
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
