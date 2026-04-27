@@ -1,13 +1,12 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { BboxTest } from './BboxTest';
+import { BoardParsing } from './BoardParsing';
 import { Collection } from './Collection';
 import { Compare } from './Compare';
 import { HealthGate } from './HealthGate';
 import { Home } from './Home';
-import { IntersectionTest } from './IntersectionTest';
 import { ProblemDetail } from './ProblemDetail';
 import { Review } from './Review';
-import { StoneTest } from './StoneTest';
 import { TestingIndex } from './TestingIndex';
 import { Upload } from './Upload';
 import { Validate } from './Validate';
@@ -17,14 +16,9 @@ function BboxTestRoute() {
   return <BboxTest onExit={() => navigate('/testing')} />;
 }
 
-function StoneTestRoute() {
+function BoardParsingRoute() {
   const navigate = useNavigate();
-  return <StoneTest onExit={() => navigate('/testing')} />;
-}
-
-function IntersectionTestRoute() {
-  const navigate = useNavigate();
-  return <IntersectionTest onExit={() => navigate('/testing')} />;
+  return <BoardParsing onExit={() => navigate('/testing')} />;
 }
 
 function TsumegoPlaceholder() {
@@ -49,8 +43,7 @@ function App() {
         <Route path="/compare/:dataset" element={<Compare />} />
         <Route path="/testing" element={<TestingIndex />} />
         <Route path="/testing/bbox" element={<BboxTestRoute />} />
-        <Route path="/testing/stones" element={<StoneTestRoute />} />
-        <Route path="/testing/intersections" element={<IntersectionTestRoute />} />
+        <Route path="/testing/parsing" element={<BoardParsingRoute />} />
         <Route path="/testing/validate/:dataset" element={<Validate />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

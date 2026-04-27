@@ -17,17 +17,11 @@ export function TestingIndex() {
           </span>
         </li>
         <li>
-          <Link to="/testing/stones">Stone detection + discretization</Link>
+          <Link to="/testing/parsing">Board parsing</Link>
           <span className="desc">
-            Upload a PDF, step through every detected board, and see the
-            inferred 19×19 grid alongside the crop.
-          </span>
-        </li>
-        <li>
-          <Link to="/testing/intersections">Intersection detection</Link>
-          <span className="desc">
-            Upload a PDF, step through every detected board, and see the
-            raw intersection-detector points drawn on each crop.
+            Step through each detected board. PDF crop with stones overlay
+            on the left; toggleable skeleton, segments, edges, and lattice
+            on the right; rendered SGF board below.
           </span>
         </li>
         <li>
