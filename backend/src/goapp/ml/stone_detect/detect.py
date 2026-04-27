@@ -50,6 +50,13 @@ def _load_model():
     from ultralytics import YOLO
     log.info("loading stone YOLO from %s", MODEL_PATH)
     model = YOLO(str(MODEL_PATH))
+    # Force the lazy Conv+BN fusion to run once, single-threaded, before
+    # the cached model is shared. Otherwise the first concurrent
+    # predict() calls race on `Conv.bn` mutation and raise
+    # `'Conv' object has no attribute 'bn'`. The val endpoint's
+    # ThreadPoolExecutor exposes this every time without a warmup.
+    warm = np.zeros((TRAIN_IMG_SIZE, TRAIN_IMG_SIZE, 3), dtype=np.uint8)
+    model.predict(warm, imgsz=TRAIN_IMG_SIZE, verbose=False)
     return model
 
 
