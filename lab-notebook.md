@@ -722,7 +722,7 @@ previously-exact problems. Status: **in use**.
 
 ## 2026-04-27 — current pipeline (recovery snapshot)
 
-Pinned at commit `<TBD>` so we can recover the working configuration
+Pinned at commit `b8490c2` so we can recover the working configuration
 if a future change regresses it.
 
 **Models** (both YOLOv8-nano, trained on synthetic pages via Modal L4):
