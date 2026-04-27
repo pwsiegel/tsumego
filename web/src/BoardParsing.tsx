@@ -204,7 +204,10 @@ export function BoardParsing({ onExit }: Props) {
                   style={{ pointerEvents: 'none' }}
                 >
                   {ix.stones.map((s, i) => {
-                    const r = Math.max(4, Math.min(W, H) / 60);
+                    // Match the actual stone size (a real stone fills
+                    // ~0.45 of the cell) so a misfit pitch is visible
+                    // as circles that don't line up with the discs.
+                    const r = disc ? Math.max(4, disc.cell_size * 0.45) : Math.max(4, Math.min(W, H) / 60);
                     return (
                       <circle
                         key={i}

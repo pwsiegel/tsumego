@@ -72,7 +72,7 @@
 
 .bp-board {
   flex: 0 0 auto;
-  width: min(60vw, 620px);
+  width: min(32vw, 340px);
   line-height: 0;
   margin-top: 4.5rem;
 }
