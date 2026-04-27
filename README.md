@@ -25,7 +25,7 @@ Developer tools (under `/testing/…`):
 | Route | What it does |
 |---|---|
 | `/testing/bbox` | Visualize YOLO board-bbox detection on each PDF page. |
-| `/testing/stones` | Visualize stone detection + grid discretization for one board. |
+| `/testing/parsing` | Step through each detected board on a page. PDF crop + stones overlay on one side; toggleable skeleton, segments, edges, and fitted lattice on the other; rendered SGF below. |
 | `/testing/validate/:dataset` | Run the full pipeline against a labeled validation set; inspect mistakes side-by-side. |
 | `/compare/:dataset` | Side-by-side compare of detector output vs. ground truth. |
 
@@ -66,35 +66,49 @@ synthetic data only — no labeled real-world scans needed.
 Hoshi (star points) are rendered into the synthetic boards but
 **not labeled** as stones — the model learns to treat them as background.
 
-### Classical algorithms (no training)
+### Classical geometry (no training)
 
 These run after stone detection to convert pixel positions into a 19×19
-board state. Living under `backend/src/goapp/ml/` even though they aren't
-ML — kept there as part of the detection pipeline.
+board state. They live under `backend/src/goapp/ml/` next to the trained
+detectors, even though they aren't ML — they're the rest of the
+pipeline.
 
-- **Edge detection** (`edge_detect/`). For each side of a board crop,
-  decides whether that side is a real frame line (the outer 19th line)
-  or an interior grid row/column near the crop edge. Method: adaptive
-  threshold → 1D dark-pixel-density profile across a strip near that
-  side → score the outermost peak as frame-like vs. grid-like (uses
-  thickness-ratio and darkness-delta vs. the next interior peak).
+- **Edge detection** (`edge_detect/`). Decides which sides of the crop
+  are real board boundaries (vs. interior rows/columns where a windowed
+  diagram cuts mid-board) and reports each accepted edge's pixel
+  position. Pipeline:
+  1. Paint stones out, adaptive-threshold + skeletonize the cleaned
+     crop, walk the 1-px skeleton to recover T/L/+ junctions and their
+     arm directions (`tjunction.py`).
+  2. Filter junctions inside painted-stone discs (paint-edge artifacts).
+  3. Vote: a side fires if a co-linear cluster of T/L's points outward,
+     or enough stones near that side classify as edge-stones
+     (`stone_detect/edge_test.py`).
+  4. Validate: reject any side whose anchor position has stones past it,
+     or where outward-of-the-edge ink shows perpendicular grid extending
+     at pitch spacing (windowed-view marker).
 
-- **Pitch measurement** (`pitch/`). Measures the grid cell size in pixels
-  by finding the distance between the frame line and the first interior
-  grid line on each confirmed-frame side, then takes the median. Works
-  directly off the printed grid, not off detected stones.
+  Output is a 4-bit dict (`left`/`right`/`top`/`bottom`) plus the pixel
+  position of each accepted edge.
 
-- **Discretization** (`discretize/`). Given stone centers (from the
-  stone CNN) plus the 4-bit edge classifier output, computes:
-  `cell_size` (25th percentile of pairwise stone distances within a
-  plausible pitch range — a robust nearest-neighbor estimate),
-  `origin_x/y` (brute-force search in `[0, cell_size)` minimizing snap
-  residual), and the position of the visible window inside the full
-  19×19 board. Edge flags disambiguate which corner/edge of the board
-  the crop covers.
+- **Segment detection + lattice fit** (`segments/`). Detects line
+  segments on the painted-out crop (FastLineDetector) and fits a
+  uniform-pitch grid by combining three signals: segment-position
+  histograms per axis, stone centers, and skeleton junction centers.
+  Produces `(origin_x, origin_y, pitch_x, pitch_y)`.
+
+- **Discretization** (`discretize/`). Snaps each stone to a (col, row)
+  on the fitted lattice and places the visible window inside the full
+  19×19 board using the edge bits. The fitted geometry is overridden
+  with edge-anchored values when available — both edges of an axis
+  detected ⇒ `pitch = (far − near) / 18`, `origin = near`; one edge
+  detected ⇒ origin pinned to it. This avoids the off-by-one phase
+  ambiguity the segment-fit can fall into on curved (page-spine-bowed)
+  scans.
 
 The pipeline (`ml/pipeline.py`) ties these together: YOLO board → crop →
-stone YOLO + classical geometry → discretized 19×19 position.
+stone YOLO → edge detect → segment fit → edge-anchored discretization →
+19×19 position. See `lab-notebook.md` for the design history.
 
 ### Synthetic data (`backend/src/goapp/synth/`)
 
@@ -119,15 +133,22 @@ CPU-bound, no GPU needed; ~5 minutes on a recent Mac.
 tsumego/
 ├── web/                   React + TS + Vite frontend
 ├── backend/
-│   ├── data/models/       Trained .pt weights baked into the serving image
+│   ├── data/models/       board_detector.pt, stone_detector.pt — baked into the serving image
 │   └── src/goapp/
 │       ├── api/           FastAPI routers (health, pdf, tsumego, val)
-│       ├── ml/            Detection + classical-geometry pipeline
+│       ├── ml/
+│       │   ├── board_detect/      YOLO board detector (loader + train)
+│       │   ├── stone_detect/      YOLO stone detector (loader + train + edge_test classifier)
+│       │   ├── edge_detect/       skeleton.py (decide_edges) + tjunction.py (junction recovery)
+│       │   ├── segments/          line-segment detection + fused lattice fit
+│       │   ├── discretize/        snap stones to a 19×19 board
+│       │   └── pipeline.py        full pipeline orchestration
 │       ├── cli/           Validation runner, dataset export, comparison
 │       └── synth/         Synthetic page generator
 ├── training/              Modal app for cloud GPU training
 ├── Dockerfile             Serving image (Cloud Run)
 ├── Makefile               All common tasks
+├── lab-notebook.md        Running record of pipeline design decisions
 └── docker-compose.yml     Local containerized dev
 ```
 

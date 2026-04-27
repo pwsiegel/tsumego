@@ -720,6 +720,56 @@ previously-exact problems. Status: **in use**.
 
 ---
 
+## 2026-04-27 — current pipeline (recovery snapshot)
+
+Pinned at commit `<TBD>` so we can recover the working configuration
+if a future change regresses it.
+
+**Models** (both YOLOv8-nano, trained on synthetic pages via Modal L4):
+
+- `backend/data/models/board_detector.pt` — page → board bboxes.
+  Trained from `goapp.ml.board_detect.train` on `synth_pages/`.
+- `backend/data/models/stone_detector.pt` — board crop → black/white
+  stone detections. Trained from `goapp.ml.stone_detect.train`.
+
+There are no other model artifacts. The intersection detector, the
+pitch measurer, and the classical edge detector were all retired in
+favor of a skeleton + segments classical pipeline.
+
+**Per-image pipeline** (`goapp.ml.pipeline.discretize_crop`):
+
+1. Stone detection — `stone_detect.detect.predict_stones`. Eagerly
+   warmed at load time so the cached YOLO is fully fused before
+   threads share it.
+2. Skeletonize the crop (adaptive threshold + erase stones via the
+   YOLO bboxes + skimage skeletonize). Used by both edge and segment
+   stages.
+3. Edges — `edge_detect.skeleton.decide_edges` looks for T/L/+
+   junctions on the skeleton along each side and validates with
+   "ink past the line" + "no grid further out". Returns booleans
+   *and* pixel positions.
+4. Segments — `cv2.ximgproc.FastLineDetector` on the skeleton →
+   `segments.fit_lattice_fused` fits origin/pitch from segments +
+   stone centers + junctions.
+5. **Edge anchoring** — when both axis edges are detected,
+   `pitch = (far − near) / 18` and `origin = near`; when only one
+   edge is detected, anchor origin to it. Overrides the fitted
+   values on every board where ≥1 edge per axis fired.
+6. Discretize — `discretize._place_window` snaps stones to the
+   anchored lattice, picks the 19×N or N×19 window that contains
+   them, honoring detected edges as hard `min/max` constraints.
+
+**Orchestration** is just FastAPI plus a `ThreadPoolExecutor` with
+`max_workers=4` for the val streaming endpoint and the bbox-ingest
+streaming endpoint. Both surface NDJSON progress events; the React
+client renders them as live progress bars.
+
+**Validation** (hm2, 124 problems): 120/124 exact, 4 changed (3
+annotation-glyph extras + 1 missed stone). Re-run with
+`make validate DATASET=hm2`.
+
+---
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
