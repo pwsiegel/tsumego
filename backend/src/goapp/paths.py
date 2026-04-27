@@ -86,8 +86,6 @@ def uploads_object_key(user_id: str, upload_id: str) -> str:
 # --- model weights ---
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
-INTERSECTION_DETECTOR_PATH = MODELS_DIR / "intersection_detector.pt"
-INTERSECTION_DETECTOR_NO_EDGES_PATH = MODELS_DIR / "intersection_detector_no_edges.pt"
 
 # --- training run artifacts (ultralytics' project dir) ---
 TRAINING_RUNS_DIR = DATA_DIR / "training_runs"

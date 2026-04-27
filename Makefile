@@ -1,8 +1,8 @@
 .PHONY: help setup api web dev lint \
-       synth train-boards train-stones train-intersections validate \
+       synth train-boards train-stones validate \
        docker-up docker-down \
        deploy logs \
-       modal-upload-synth modal-gen-synth modal-train-smoke modal-train-boards modal-train-stones modal-train-intersections modal-train-intersections-no-edges modal-pull-weights
+       modal-upload-synth modal-gen-synth modal-train-smoke modal-train-boards modal-train-stones modal-pull-weights
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -49,10 +49,6 @@ train-boards: ## Train the board detector
 
 train-stones: ## Train the stone detector (set DEVICE=cpu if no GPU)
 	uv --directory backend run --extra ml python -m goapp.ml.stone_detect.train \
-		--limit 1500 --epochs 30 --device $(DEVICE)
-
-train-intersections: ## Train the intersection detector (set DEVICE=cpu if no GPU)
-	uv --directory backend run --extra ml python -m goapp.ml.intersection_detect.train \
 		--limit 1500 --epochs 30 --device $(DEVICE)
 
 # ---------------------------------------------------------------------------
@@ -120,14 +116,8 @@ modal-train-boards: ## Train the board detector on Modal (L4)
 modal-train-stones: ## Train the stone detector on Modal (L4)
 	modal run training/modal_train.py::train_stones
 
-modal-train-intersections: ## Train the intersection detector on Modal (L4)
-	modal run training/modal_train.py::train_intersections
-
-modal-train-intersections-no-edges: ## Train the intersection detector with board-edge T/L labels dropped (diagnostic)
-	modal run training/modal_train.py::train_intersections_no_edges
-
 modal-pull-weights: ## Copy trained weights from the Modal volume into backend/data/models/ (skips any not yet on the volume)
-	@for f in board_detector.pt stone_detector.pt intersection_detector.pt intersection_detector_no_edges.pt; do \
+	@for f in board_detector.pt stone_detector.pt; do \
 		echo "==> $$f"; \
 		modal volume get --force $(MODAL_VOLUME) /models/$$f backend/data/models/ \
 			|| echo "   (skipped — not on volume)"; \
