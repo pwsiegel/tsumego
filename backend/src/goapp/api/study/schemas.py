@@ -146,6 +146,18 @@ class TeacherMe(BaseModel):
     id: str
     label: str
     student: str           # who's asking the teacher to review (user_id)
+    student_name: str      # student's configured display name (falls back to user_id)
+
+
+# --- profile (per-user settings) ---
+
+
+class Profile(BaseModel):
+    display_name: str | None = None
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str | None = None
 
 
 class ReviewRequest(BaseModel):

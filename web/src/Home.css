@@ -21,6 +21,11 @@
   font-weight: 600;
 }
 
+.home-nav {
+  display: flex;
+  gap: 1rem;
+}
+
 .home-header nav .dim {
   color: var(--text-faint);
   text-decoration: none;
@@ -168,7 +173,7 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   background: var(--bg-subtle);
   font-family: ui-monospace, monospace;
@@ -367,8 +372,8 @@
 }
 
 .job-card.state-stalled {
-  border-color: #e6d8a8;
-  background: #fbf6e4;
+  border-color: var(--warning-line);
+  background: var(--warning-bg-soft);
 }
 
 .job-card.state-error {
@@ -377,8 +382,8 @@
 }
 
 .job-card.state-done {
-  border-color: #d6e8c8;
-  background: #f5faee;
+  border-color: var(--success);
+  background: var(--success-bg);
 }
 
 .job-card-main {
@@ -604,7 +609,7 @@
 
 .submissions-outbox-warn {
   margin: 0;
-  color: #6a4a00;
+  color: var(--warning-strong);
   font-size: 0.88rem;
 }
 
@@ -661,12 +666,12 @@
 }
 
 .submissions-state.state-pending {
-  background: #f0eee5;
+  background: var(--warning-bg-soft);
   color: var(--warning-mid);
 }
 
 .submissions-state.state-returned {
-  background: #e6f1da;
+  background: var(--success-bg);
   color: var(--success-strong);
 }
 

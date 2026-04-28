@@ -13,6 +13,7 @@ from fastapi.responses import Response
 
 from ...auth import user_id_from_request
 from ...paths import tsumego_dir
+from ...profile import display_name, load_profile, save_profile
 from ...study import (
     ack_submission,
     attempts_for_problem,
@@ -43,6 +44,7 @@ from .schemas import (
     BatchResponse,
     CreateTeacherRequest,
     Move,
+    Profile,
     ProblemStatus,
     ProblemStatusesResponse,
     ProblemSummary,
@@ -59,6 +61,7 @@ from .schemas import (
     TeacherMe,
     TeachersResponse,
     TeacherWithUrl,
+    UpdateProfileRequest,
     UpdateTeacherRequest,
 )
 
@@ -279,6 +282,23 @@ def delete_teacher_endpoint(teacher_id: str, user_id: str = UserId) -> dict:
     return {"deleted": teacher_id}
 
 
+# --- student endpoints: profile ---
+
+
+@router.get("/api/study/profile", response_model=Profile)
+def get_profile_endpoint(user_id: str = UserId) -> Profile:
+    return Profile(**load_profile(user_id))
+
+
+@router.patch("/api/study/profile", response_model=Profile)
+def update_profile_endpoint(
+    req: UpdateProfileRequest, user_id: str = UserId,
+) -> Profile:
+    fields = req.model_dump(exclude_unset=True)
+    saved = save_profile(user_id, **fields)
+    return Profile(**saved)
+
+
 # --- teacher endpoints (capability URL) ---
 
 
@@ -292,7 +312,12 @@ def _teacher_ctx(token: str) -> tuple[str, dict]:
 @router.get("/api/teacher/{token}/me", response_model=TeacherMe)
 def teacher_me_endpoint(token: str) -> TeacherMe:
     uid, rec = _teacher_ctx(token)
-    return TeacherMe(id=rec["id"], label=rec.get("label", "Teacher"), student=uid)
+    return TeacherMe(
+        id=rec["id"],
+        label=rec.get("label", "Teacher"),
+        student=uid,
+        student_name=display_name(uid),
+    )
 
 
 @router.get("/api/teacher/{token}/queue", response_model=TeacherBundleResponse)

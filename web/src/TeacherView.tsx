@@ -125,7 +125,7 @@ export function TeacherView() {
           <div>
             <h1>Teacher review</h1>
             <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student}</strong>
+            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong>
           </div>
           </div>
         </header>
@@ -187,7 +187,7 @@ export function TeacherView() {
         <div>
           <h1>Teacher review</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student}</strong> &nbsp;·&nbsp;
+            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
             {batches.length} submission{batches.length === 1 ? '' : 's'} pending
           </div>
         </div>
@@ -224,8 +224,8 @@ export function TeacherView() {
               >
                 <div className="teacher-batch-when">
                   {b.sent_at
-                    ? `Sent ${formatTimestamp(b.sent_at)} by ${me.student}`
-                    : `Sent by ${me.student}`}
+                    ? `Sent ${formatTimestamp(b.sent_at)} by ${me.student_name}`
+                    : `Sent by ${me.student_name}`}
                 </div>
                 <div className="teacher-batch-counts">
                   {b.items.length} problem{b.items.length === 1 ? '' : 's'}
@@ -292,7 +292,7 @@ function GridView({
           </button>
           <h1>{batch.sent_at ? `Submission — ${formatTimestamp(batch.sent_at)}` : 'Submission'}</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student}</strong> &nbsp;·&nbsp;
+            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
             {batch.items.length} pending
           </div>
         </div>
@@ -480,7 +480,7 @@ function DetailView({
           </button>
           <h1>Reviewing</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student}</strong> &nbsp;·&nbsp;
+            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
             {idx + 1} / {batch.items.length}
           </div>
         </div>
@@ -601,7 +601,7 @@ function HistoryView({
           </button>
           <h1>Submission history</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student}</strong> &nbsp;·&nbsp;
+            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
             {sorted.length} graded
           </div>
           {sorted.length > 0 && (

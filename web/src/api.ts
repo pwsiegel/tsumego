@@ -246,7 +246,14 @@ export type Teacher = {
   url: string;
 };
 
-export type TeacherMe = { id: string; label: string; student: string };
+export type TeacherMe = {
+  id: string;
+  label: string;
+  student: string;       // raw uid
+  student_name: string;  // configured display name (falls back to student)
+};
+
+export type Profile = { display_name: string | null };
 
 export type ProblemStatus = {
   last_verdict: 'correct' | 'incorrect' | null;
@@ -654,6 +661,16 @@ export const api = {
     deleteTeacher(id: string): Promise<void> {
       return request<unknown>(`/api/study/teachers/${id}`, { method: 'DELETE' })
         .then(() => undefined);
+    },
+    getProfile(): Promise<Profile> {
+      return request<Profile>('/api/study/profile', NO_STORE);
+    },
+    updateProfile(p: Partial<Profile>): Promise<Profile> {
+      return request<Profile>('/api/study/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(p),
+      });
     },
   },
 

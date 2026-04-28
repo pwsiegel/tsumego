@@ -230,7 +230,8 @@ export function Home() {
     <div className="home">
       <header className="home-header">
         <h1>Go problem workbook</h1>
-        <nav>
+        <nav className="home-nav">
+          <Link to="/profile" className="dim">profile</Link>
           <Link to="/testing" className="dim">developer tools</Link>
         </nav>
       </header>

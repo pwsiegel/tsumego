@@ -7,6 +7,7 @@ import { Compare } from './Compare';
 import { HealthGate } from './HealthGate';
 import { Home } from './Home';
 import { ProblemDetail } from './ProblemDetail';
+import { Profile } from './Profile';
 import { Review } from './Review';
 import { Reviewed } from './Reviewed';
 import { SolveEntry, SolveView } from './SolveView';
@@ -42,6 +43,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/profile" element={<Profile />} />
         <Route path="/reviewed" element={<Reviewed />} />
         <Route path="/submissions/:sent_at" element={<Submission />} />
         <Route path="/collections/:source/edit" element={<Collection />} />
