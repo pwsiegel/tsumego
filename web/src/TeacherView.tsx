@@ -1,27 +1,119 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type TeacherAttemptWithProblem, type TeacherMe } from './api';
+import { api, type LinkedUser, type TeacherAttemptWithProblem } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
 import './TeacherView.css';
 
 type Verdict = 'correct' | 'incorrect';
 
-/** Capability-URL view. Three modes, controlled by internal state:
+/** Authenticated reviewer view. Three modes inside a single student:
  *
  *   1. entry  — list of pending submissions (one per `sent_at`)
  *   2. grid   — tile grid for one submission, with verdict buttons
  *   3. detail — full board for one attempt, with prev/next inside submission
  *
- * Verdicts are client-side drafts, scoped to a single browser session;
- * "Submit reviews" persists only the drafts inside the active submission. */
+ * If the caller has no `:student_uid` in the URL, we either auto-redirect
+ * to the only linked student, or render a picker. */
 export function TeacherView() {
-  const { token = '' } = useParams();
+  const { student_uid: encStudentUid } = useParams();
+  const studentUid = encStudentUid ? decodeURIComponent(encStudentUid) : null;
+  const navigate = useNavigate();
 
+  const [students, setStudents] = useState<LinkedUser[] | null>(null);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.teacher.listStudents()
+      .then(setStudents)
+      .catch((e) => setStudentsError(String(e)));
+  }, []);
+
+  // Auto-redirect to the only linked student if we landed on /teacher.
+  useEffect(() => {
+    if (studentUid || !students) return;
+    if (students.length === 1) {
+      navigate(`/teacher/students/${encodeURIComponent(students[0].user_id)}`, { replace: true });
+    }
+  }, [students, studentUid, navigate]);
+
+  if (studentsError) {
+    return (
+      <div className="teacher">
+        <p className="teacher-error">{studentsError}</p>
+      </div>
+    );
+  }
+
+  if (students === null) {
+    return <div className="teacher" style={{ color: '#666' }}>Loading…</div>;
+  }
+
+  if (students.length === 0) {
+    return (
+      <div className="teacher">
+        <header className="teacher-header">
+          <div>
+            <Link to="/" className="back-link">← student view</Link>
+            <h1>Teacher review</h1>
+          </div>
+        </header>
+        <p className="teacher-empty">
+          No students have linked you yet.
+        </p>
+      </div>
+    );
+  }
+
+  if (!studentUid) {
+    return (
+      <div className="teacher">
+        <header className="teacher-header">
+          <div>
+            <Link to="/" className="back-link">← student view</Link>
+            <h1>Teacher review</h1>
+            <div className="teacher-meta">Select a student.</div>
+          </div>
+        </header>
+        <ul className="teacher-batch-list">
+          {students.map((s) => (
+            <li key={s.user_id} className="teacher-batch-row">
+              <Link
+                to={`/teacher/students/${encodeURIComponent(s.user_id)}`}
+                className="teacher-batch-btn"
+              >
+                <div className="teacher-batch-when">{s.display_name}</div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  const student = students.find((s) => s.user_id === studentUid) ?? null;
+  if (!student) {
+    return (
+      <div className="teacher">
+        <p className="teacher-error">Not linked as teacher of this student.</p>
+        <Link to="/teacher" className="back-link">← teacher view</Link>
+      </div>
+    );
+  }
+
+  return <StudentReview student={student} hasOthers={students.length > 1} />;
+}
+
+function StudentReview({
+  student, hasOthers,
+}: {
+  student: LinkedUser;
+  hasOthers: boolean;
+}) {
+  const studentUid = student.user_id;
   const [items, setItems] = useState<TeacherAttemptWithProblem[] | null>(null);
   const [history, setHistory] = useState<TeacherAttemptWithProblem[] | null>(null);
-  const [me, setMe] = useState<TeacherMe | null>(null);
   const [drafts, setDrafts] = useState<Map<string, Verdict>>(new Map());
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
@@ -31,23 +123,21 @@ export function TeacherView() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
-    const [m, q, h] = await Promise.all([
-      api.teacher.me(token),
-      api.teacher.queue(token),
-      api.teacher.reviewed(token),
+    const [q, h] = await Promise.all([
+      api.teacher.queue(studentUid),
+      api.teacher.reviewed(studentUid),
     ]);
-    setMe(m);
     setItems(q);
     setHistory(h);
   };
 
   useEffect(() => {
+    setItems(null);
+    setHistory(null);
     refresh().catch((e) => setError(String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [studentUid]);
 
-  // Stable batch grouping: each unique `sent_at` is one batch, sorted
-  // newest first so the teacher's most recent ask is on top.
   const batches = useMemo(() => groupBatches(items ?? []), [items]);
   const currentBatch = selectedBatch
     ? batches.find((b) => b.sent_at === selectedBatch) ?? null
@@ -75,9 +165,8 @@ export function TeacherView() {
     setFlash(null);
     try {
       for (const [aid, verdict] of toSend) {
-        await api.teacher.review(token, aid, verdict);
+        await api.teacher.review(studentUid, aid, verdict);
       }
-      // Drop the just-submitted drafts, leave any others intact.
       setDrafts((prev) => {
         const next = new Map(prev);
         for (const [aid] of toSend) next.delete(aid);
@@ -94,24 +183,28 @@ export function TeacherView() {
     }
   };
 
+  const backLink = hasOthers ? (
+    <Link to="/teacher" className="back-link">← all students</Link>
+  ) : (
+    <Link to="/" className="back-link">← student view</Link>
+  );
+
   if (error && !items) {
     return (
       <div className="teacher">
+        {backLink}
         <p className="teacher-error">{error}</p>
-        <p className="teacher-hint">
-          The link may be expired or the token incorrect.
-        </p>
       </div>
     );
   }
-  if (items === null || me === null) {
+  if (items === null) {
     return <div className="teacher" style={{ color: '#666' }}>Loading…</div>;
   }
 
   if (showHistory) {
     return (
       <HistoryView
-        me={me}
+        student={student}
         items={history ?? []}
         onBack={() => setShowHistory(false)}
       />
@@ -123,10 +216,11 @@ export function TeacherView() {
       <div className="teacher">
         <header className="teacher-header">
           <div>
+            {backLink}
             <h1>Teacher review</h1>
             <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong>
-          </div>
+              For <strong>{student.display_name}</strong>
+            </div>
           </div>
         </header>
         {flash && <div className="teacher-flash">{flash}</div>}
@@ -147,8 +241,7 @@ export function TeacherView() {
   if (currentBatch && selectedIdx !== null) {
     return (
       <DetailView
-        token={token}
-        me={me}
+        student={student}
         batch={currentBatch}
         idx={selectedIdx}
         setIdx={setSelectedIdx}
@@ -165,7 +258,7 @@ export function TeacherView() {
   if (currentBatch) {
     return (
       <GridView
-        me={me}
+        student={student}
         batch={currentBatch}
         onBack={() => setSelectedBatch(null)}
         onOpen={(i) => setSelectedIdx(i)}
@@ -185,9 +278,10 @@ export function TeacherView() {
     <div className="teacher">
       <header className="teacher-header">
         <div>
+          {backLink}
           <h1>Teacher review</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
+            For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
             {batches.length} submission{batches.length === 1 ? '' : 's'} pending
           </div>
         </div>
@@ -224,8 +318,8 @@ export function TeacherView() {
               >
                 <div className="teacher-batch-when">
                   {b.sent_at
-                    ? `Sent ${formatTimestamp(b.sent_at)} by ${me.student_name}`
-                    : `Sent by ${me.student_name}`}
+                    ? `Sent ${formatTimestamp(b.sent_at)} by ${student.display_name}`
+                    : `Sent by ${student.display_name}`}
                 </div>
                 <div className="teacher-batch-counts">
                   {b.items.length} problem{b.items.length === 1 ? '' : 's'}
@@ -261,16 +355,15 @@ function groupBatches(items: TeacherAttemptWithProblem[]): {
     sent_at,
     items,
   }));
-  // Newest first; missing sent_at falls to the bottom.
   out.sort((a, b) => (b.sent_at || '').localeCompare(a.sent_at || ''));
   return out;
 }
 
 function GridView({
-  me, batch, onBack, onOpen, drafts, setVerdict, submitBatch, submitting,
+  student, batch, onBack, onOpen, drafts, setVerdict, submitBatch, submitting,
   flash, error,
 }: {
-  me: TeacherMe;
+  student: LinkedUser;
   batch: { sent_at: string; items: TeacherAttemptWithProblem[] };
   onBack: () => void;
   onOpen: (i: number) => void;
@@ -292,7 +385,7 @@ function GridView({
           </button>
           <h1>{batch.sent_at ? `Submission — ${formatTimestamp(batch.sent_at)}` : 'Submission'}</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
+            For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
             {batch.items.length} pending
           </div>
         </div>
@@ -427,11 +520,10 @@ function GridTile({
 }
 
 function DetailView({
-  token, me, batch, idx, setIdx, drafts, setVerdict, submitBatch, submitting,
+  student, batch, idx, setIdx, drafts, setVerdict, submitBatch, submitting,
   flash, error,
 }: {
-  token: string;
-  me: TeacherMe;
+  student: LinkedUser;
   batch: { sent_at: string; items: TeacherAttemptWithProblem[] };
   idx: number;
   setIdx: (i: number | null) => void;
@@ -480,7 +572,7 @@ function DetailView({
           </button>
           <h1>Reviewing</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
+            For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
             {idx + 1} / {batch.items.length}
           </div>
         </div>
@@ -561,7 +653,7 @@ function DetailView({
         <details className="teacher-original">
           <summary>View original</summary>
           <img
-            src={api.teacher.problemImageUrl(token, current.problem.id)}
+            src={api.teacher.problemImageUrl(student.user_id, current.problem.id)}
             alt={`Original crop for problem ${current.problem.source_board_idx + 1}`}
           />
         </details>
@@ -574,9 +666,9 @@ function DetailView({
 }
 
 function HistoryView({
-  me, items, onBack,
+  student, items, onBack,
 }: {
-  me: TeacherMe;
+  student: LinkedUser;
   items: TeacherAttemptWithProblem[];
   onBack: () => void;
 }) {
@@ -601,7 +693,7 @@ function HistoryView({
           </button>
           <h1>Submission history</h1>
           <div className="teacher-meta">
-            Reviewing as <strong>{me.label}</strong> for <strong>{me.student_name}</strong> &nbsp;·&nbsp;
+            For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
             {sorted.length} graded
           </div>
           {sorted.length > 0 && (

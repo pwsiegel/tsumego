@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type AttemptWithProblem, type Submission as SubmissionT, type Teacher } from './api';
+import { api, type AttemptWithProblem, type Submission as SubmissionT } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
 import './Reviewed.css';
@@ -15,20 +15,14 @@ export function Submission() {
   const sentAt = decodeURIComponent(encSentAt);
   const navigate = useNavigate();
   const [submission, setSubmission] = useState<SubmissionT | null>(null);
-  const [teachers, setTeachers] = useState<Teacher[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acking, setAcking] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.study.getSubmission(sentAt), api.study.listTeachers()])
-      .then(([s, ts]) => { setSubmission(s); setTeachers(ts); })
+    api.study.getSubmission(sentAt)
+      .then(setSubmission)
       .catch((e) => setError(String(e)));
   }, [sentAt]);
-
-  const teacher = useMemo(() => {
-    if (!submission || !teachers) return null;
-    return teachers.find((t) => t.id === submission.teacher_id) ?? null;
-  }, [submission, teachers]);
 
   const ack = async () => {
     if (!submission) return;
@@ -50,10 +44,10 @@ export function Submission() {
     );
   }
 
-  const teacherLabel = teacher?.label ?? '(removed teacher)';
+  const teacherLabel = submission.reviewer_name;
   const total = submission.items.length;
   const reviewed = submission.items.filter(
-    (it) => it.attempt.reviews[submission.teacher_id] !== undefined,
+    (it) => it.attempt.reviews[submission.reviewer_id] !== undefined,
   ).length;
 
   return (
@@ -89,7 +83,7 @@ export function Submission() {
           <SubmissionRow
             key={it.attempt.id}
             item={it}
-            teacherId={submission.teacher_id}
+            teacherId={submission.reviewer_id}
             teacherLabel={teacherLabel}
           />
         ))}

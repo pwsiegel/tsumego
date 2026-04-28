@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type Attempt, type ProblemStatus, type Teacher, type TsumegoProblem } from './api';
+import { api, type Attempt, type LinkedUser, type ProblemStatus, type TsumegoProblem } from './api';
 import { computeNumberedOverlay, type MovePoint } from './numberedMoves';
 import type { Stone } from './types';
 import './SolveView.css';
@@ -18,7 +18,7 @@ export function SolveView() {
 
   const [problem, setProblem] = useState<TsumegoProblem | null>(null);
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [teachers, setTeachers] = useState<LinkedUser[]>([]);
   const [siblings, setSiblings] = useState<TsumegoProblem[] | null>(null);
   const [moves, setMoves] = useState<MovePoint[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +35,7 @@ export function SolveView() {
     Promise.all([
       api.tsumego.getProblem(id),
       api.study.listAttempts(id),
-      api.study.listTeachers().catch(() => [] as Teacher[]),
+      api.study.listTeachers().catch(() => [] as LinkedUser[]),
     ])
       .then(([p, a, ts]) => {
         if (cancelled) return;
@@ -270,12 +270,12 @@ function SolveHistory({
   attempts, teachers, stones,
 }: {
   attempts: Attempt[];
-  teachers: Teacher[];
+  teachers: LinkedUser[];
   stones: Stone[];
 }) {
   const teachersById = useMemo(() => {
-    const m = new Map<string, Teacher>();
-    for (const t of teachers) m.set(t.id, t);
+    const m = new Map<string, LinkedUser>();
+    for (const t of teachers) m.set(t.user_id, t);
     return m;
   }, [teachers]);
 
@@ -305,7 +305,7 @@ function SolveHistory({
           const viewport = boundingViewport(allPts);
           const verdicts = Object.entries(a.reviews).map(([tid, r]) => ({
             teacher_id: tid,
-            label: teachersById.get(tid)?.label ?? '(removed teacher)',
+            label: teachersById.get(tid)?.display_name ?? tid,
             verdict: r.verdict,
             reviewed_at: r.reviewed_at,
           }));

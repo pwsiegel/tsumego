@@ -23,7 +23,7 @@ Subdirectory layout under $GOAPP_DATA_DIR:
         tsumego/{user_id}/   per-user library of accepted problems
         attempts/{user_id}/
             attempt_*.json   per-attempt records (sent_to / reviews embedded)
-            teachers/{teacher_id}.json   one file per teacher (token + label)
+            links.json       {"teachers": [<reviewer_user_id>, ...]}
         uploads/{user_id}/   transient PDF uploads (signed-URL flow only)
         training_runs/       ultralytics training run artifacts
 """
@@ -104,15 +104,6 @@ ATTEMPTS_ROOT = DATA_DIR / "attempts"
 
 def attempts_dir(user_id: str) -> Path:
     return ATTEMPTS_ROOT / user_id
-
-
-# --- teachers: per-(user, teacher) capability-URL files ---
-def teachers_dir(user_id: str) -> Path:
-    return attempts_dir(user_id) / "teachers"
-
-
-def teacher_path(user_id: str, teacher_id: str) -> Path:
-    return teachers_dir(user_id) / f"{teacher_id}.json"
 
 
 # --- model weights ---

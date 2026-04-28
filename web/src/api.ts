@@ -182,21 +182,21 @@ export type IngestJob = {
   stalled: boolean;
 };
 
-// ---------- /api/study + /api/teacher ----------
+// ---------- /api/study ----------
 
 export type Move = { col: number; row: number };
 
 export type Review = { verdict: 'correct' | 'incorrect'; reviewed_at: string };
 
-/** Student-facing attempt: full per-teacher reviews map. */
+/** Student-facing attempt: full per-reviewer reviews map. */
 export type Attempt = {
   id: string;
   problem_id: string;
   moves: Move[];
   submitted_at: string;
-  sent_to: string[];
+  sent_to: string[];          // reviewer user_ids
   sent_at: string | null;
-  reviews: Record<string, Review>;
+  reviews: Record<string, Review>;  // keyed by reviewer user_id
   acked_at: string | null;
 };
 
@@ -204,12 +204,13 @@ export type SubmissionState = 'pending' | 'returned' | 'acked';
 
 export type Submission = {
   sent_at: string;
-  teacher_id: string;
+  reviewer_id: string;        // reviewer's user_id
+  reviewer_name: string;      // display name (falls back to user_id)
   state: SubmissionState;
   items: AttemptWithProblem[];
 };
 
-/** Teacher-facing attempt: only this teacher's review is exposed. */
+/** Reviewer-facing attempt: only this reviewer's review is exposed. */
 export type TeacherAttempt = {
   id: string;
   problem_id: string;
@@ -238,19 +239,10 @@ export type TeacherAttemptWithProblem = {
   problem: ProblemSummary;
 };
 
-export type Teacher = {
-  id: string;
-  label: string;
-  created_at: string;
-  token: string;
-  url: string;
-};
-
-export type TeacherMe = {
-  id: string;
-  label: string;
-  student: string;       // raw uid
-  student_name: string;  // configured display name (falls back to student)
+/** A user the caller is linked to (either as their teacher or their student). */
+export type LinkedUser = {
+  user_id: string;
+  display_name: string;
 };
 
 export type Profile = { display_name: string | null };
@@ -625,9 +617,9 @@ export const api = {
       return request<{ items: AttemptWithProblem[] }>('/api/study/batch', NO_STORE)
         .then((r) => r.items);
     },
-    sendBatch(teacher_id: string): Promise<{ sent_count: number; teacher_id: string; sent_at: string }> {
-      return postJson<{ sent_count: number; teacher_id: string; sent_at: string }>(
-        '/api/study/batch/send', { teacher_id },
+    sendBatch(teacher_user_id: string): Promise<{ sent_count: number; teacher_user_id: string; sent_at: string }> {
+      return postJson<{ sent_count: number; teacher_user_id: string; sent_at: string }>(
+        '/api/study/batch/send', { teacher_user_id },
       );
     },
     listSubmissions(): Promise<Submission[]> {
@@ -644,23 +636,9 @@ export const api = {
         `/api/study/submissions/${encodeURIComponent(sent_at)}/ack`, {},
       );
     },
-    listTeachers(): Promise<Teacher[]> {
-      return request<{ teachers: Teacher[] }>('/api/study/teachers', NO_STORE)
+    listTeachers(): Promise<LinkedUser[]> {
+      return request<{ teachers: LinkedUser[] }>('/api/study/teachers', NO_STORE)
         .then((r) => r.teachers);
-    },
-    createTeacher(label: string): Promise<Teacher> {
-      return postJson<Teacher>('/api/study/teachers', { label });
-    },
-    updateTeacher(id: string, label: string): Promise<Teacher> {
-      return request<Teacher>(`/api/study/teachers/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label }),
-      });
-    },
-    deleteTeacher(id: string): Promise<void> {
-      return request<unknown>(`/api/study/teachers/${id}`, { method: 'DELETE' })
-        .then(() => undefined);
     },
     getProfile(): Promise<Profile> {
       return request<Profile>('/api/study/profile', NO_STORE);
@@ -675,32 +653,39 @@ export const api = {
   },
 
   teacher: {
-    me(token: string): Promise<TeacherMe> {
-      return request<TeacherMe>(`/api/teacher/${token}/me`, NO_STORE);
+    listStudents(): Promise<LinkedUser[]> {
+      return request<{ students: LinkedUser[] }>(
+        '/api/study/teacher/students', NO_STORE,
+      ).then((r) => r.students);
     },
-    queue(token: string): Promise<TeacherAttemptWithProblem[]> {
+    queue(student_uid: string): Promise<TeacherAttemptWithProblem[]> {
       return request<{ items: TeacherAttemptWithProblem[] }>(
-        `/api/teacher/${token}/queue`, NO_STORE,
+        `/api/study/teacher/students/${encodeURIComponent(student_uid)}/queue`,
+        NO_STORE,
       ).then((r) => r.items);
     },
-    reviewed(token: string): Promise<TeacherAttemptWithProblem[]> {
+    reviewed(student_uid: string): Promise<TeacherAttemptWithProblem[]> {
       return request<{ items: TeacherAttemptWithProblem[] }>(
-        `/api/teacher/${token}/reviewed`, NO_STORE,
+        `/api/study/teacher/students/${encodeURIComponent(student_uid)}/reviewed`,
+        NO_STORE,
       ).then((r) => r.items);
     },
-    getAttempt(token: string, attempt_id: string): Promise<TeacherAttemptWithProblem> {
+    getAttempt(student_uid: string, attempt_id: string): Promise<TeacherAttemptWithProblem> {
       return request<TeacherAttemptWithProblem>(
-        `/api/teacher/${token}/attempts/${attempt_id}`, NO_STORE,
+        `/api/study/teacher/students/${encodeURIComponent(student_uid)}/attempts/${attempt_id}`,
+        NO_STORE,
       );
     },
-    review(token: string, attempt_id: string, verdict: 'correct' | 'incorrect'): Promise<TeacherAttempt> {
+    review(
+      student_uid: string, attempt_id: string, verdict: 'correct' | 'incorrect',
+    ): Promise<TeacherAttempt> {
       return postJson<TeacherAttempt>(
-        `/api/teacher/${token}/attempts/${attempt_id}/review`,
+        `/api/study/teacher/students/${encodeURIComponent(student_uid)}/attempts/${attempt_id}/review`,
         { verdict },
       );
     },
-    problemImageUrl(token: string, problem_id: string): string {
-      return `/api/teacher/${token}/problems/${problem_id}/image.png`;
+    problemImageUrl(student_uid: string, problem_id: string): string {
+      return `/api/study/teacher/students/${encodeURIComponent(student_uid)}/problems/${problem_id}/image.png`;
     },
   },
 

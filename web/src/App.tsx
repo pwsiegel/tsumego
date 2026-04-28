@@ -52,7 +52,8 @@ function App() {
         <Route path="/collections/:source/solve" element={<SolveEntry />} />
         <Route path="/collections/:source/solve/:id" element={<SolveView />} />
         <Route path="/tsumego" element={<TsumegoPlaceholder />} />
-        <Route path="/teacher/:token" element={<TeacherView />} />
+        <Route path="/teacher" element={<TeacherView />} />
+        <Route path="/teacher/students/:student_uid" element={<TeacherView />} />
         <Route path="/compare/:dataset" element={<Compare />} />
         <Route path="/testing" element={<TestingIndex />} />
         <Route path="/testing/bbox" element={<BboxTestRoute />} />

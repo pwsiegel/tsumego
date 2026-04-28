@@ -6,8 +6,8 @@ import {
   type AttemptWithProblem,
   type Collection,
   type IngestJob,
+  type LinkedUser,
   type Submission,
-  type Teacher,
 } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
@@ -41,18 +41,14 @@ export function Home() {
   const [collections, setCollections] = useState<Collection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [teachers, setTeachers] = useState<Teacher[] | null>(null);
+  const [teachers, setTeachers] = useState<LinkedUser[] | null>(null);
   const [batchItems, setBatchItems] = useState<AttemptWithProblem[] | null>(null);
   const [submissions, setSubmissions] = useState<Submission[] | null>(null);
   const [pickedTeacher, setPickedTeacher] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [submitFlash, setSubmitFlash] = useState<string | null>(null);
-  const [revealedToken, setRevealedToken] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [newLabel, setNewLabel] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [outboxExpanded, setOutboxExpanded] = useState(false);
+  const [linkedStudents, setLinkedStudents] = useState<LinkedUser[] | null>(null);
   const [jobs, setJobs] = useState<IngestJob[] | null>(null);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pollNonce, setPollNonce] = useState(0);
@@ -71,6 +67,9 @@ export function Home() {
     api.study.listSubmissions()
       .then(setSubmissions)
       .catch(() => setSubmissions([]));
+    api.teacher.listStudents()
+      .then(setLinkedStudents)
+      .catch(() => setLinkedStudents([]));
   }, []);
 
   // Poll active ingest jobs. The chain stops automatically once every
@@ -141,8 +140,8 @@ export function Home() {
   useEffect(() => {
     if (!teachers) return;
     setPickedTeacher((cur) => {
-      if (cur && teachers.some((t) => t.id === cur)) return cur;
-      return teachers[0]?.id ?? null;
+      if (cur && teachers.some((t) => t.user_id === cur)) return cur;
+      return teachers[0]?.user_id ?? null;
     });
   }, [teachers]);
 
@@ -153,7 +152,7 @@ export function Home() {
     setSubmitFlash(null);
     try {
       const r = await api.study.sendBatch(pickedTeacher);
-      const label = (teachers ?? []).find((t) => t.id === pickedTeacher)?.label ?? 'teacher';
+      const label = (teachers ?? []).find((t) => t.user_id === pickedTeacher)?.display_name ?? 'teacher';
       setSubmitFlash(`Submitted ${r.sent_count} problem${r.sent_count === 1 ? '' : 's'} to ${label}.`);
       const [items, subs] = await Promise.all([
         api.study.getBatch(),
@@ -165,45 +164,6 @@ export function Home() {
       setError(`Submit failed: ${e}`);
     } finally {
       setSending(false);
-    }
-  };
-
-  const addTeacher = async () => {
-    const label = newLabel.trim();
-    if (!label) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const t = await api.study.createTeacher(label);
-      setTeachers((prev) => [...(prev ?? []), t]);
-      setNewLabel('');
-      setRevealedToken(t.id);
-      setShowAddTeacher(false);
-    } catch (e) {
-      setError(`Couldn't add teacher: ${e}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const removeTeacher = async (t: Teacher) => {
-    if (!confirm(`Remove “${t.label}”? Their existing link will stop working.`)) return;
-    try {
-      await api.study.deleteTeacher(t.id);
-      setTeachers((prev) => (prev ?? []).filter((x) => x.id !== t.id));
-    } catch (e) {
-      setError(`Couldn't remove teacher: ${e}`);
-    }
-  };
-
-  const copyUrl = async (t: Teacher) => {
-    const abs = new URL(t.url, window.location.origin).toString();
-    try {
-      await navigator.clipboard.writeText(abs);
-      setCopiedId(t.id);
-      setTimeout(() => setCopiedId((id) => (id === t.id ? null : id)), 2000);
-    } catch {
-      // clipboard unavailable; URL is already visible for manual copy
     }
   };
 
@@ -224,13 +184,16 @@ export function Home() {
     }
   };
 
-  const teacherUrl = (t: Teacher) => new URL(t.url, window.location.origin).toString();
+  const hasLinkedStudents = (linkedStudents?.length ?? 0) > 0;
 
   return (
     <div className="home">
       <header className="home-header">
         <h1>Go problem workbook</h1>
         <nav className="home-nav">
+          {hasLinkedStudents && (
+            <Link to="/teacher" className="dim">teacher view</Link>
+          )}
           <Link to="/profile" className="dim">profile</Link>
           <Link to="/testing" className="dim">developer tools</Link>
         </nav>
@@ -239,92 +202,26 @@ export function Home() {
       <section className="home-section teachers-section">
         <div className="section-heading">
           <h2>Teachers</h2>
-          <button
-            type="button"
-            className="section-add-btn"
-            onClick={() => setShowAddTeacher((v) => !v)}
-            aria-label="Add a teacher"
-            title="Add a teacher"
-            aria-expanded={showAddTeacher}
-          >
-            <PlusIcon />
-          </button>
         </div>
         <div className="section-body">
         {teachers === null && <p className="dim">Loading…</p>}
-        {teachers !== null && teachers.length === 0 && !showAddTeacher && (
+        {teachers !== null && teachers.length === 0 && (
           <p className="dim">
-            No teachers yet. Click + to add one.
+            No linked teachers yet. Linking is set up out-of-band for now —
+            ask the admin to run the bootstrap CLI.
           </p>
         )}
         {teachers !== null && teachers.length > 0 && (
           <ul className="teachers-list">
             {teachers.map((t) => (
-              <li key={t.id} className="teacher-row">
+              <li key={t.user_id} className="teacher-row">
                 <div className="teacher-row-main">
-                  <span className="teacher-label">{t.label}</span>
-                  <span className="teacher-added">added {formatDate(t.created_at)}</span>
+                  <span className="teacher-label">{t.display_name}</span>
                 </div>
-                <div className="teacher-row-actions">
-                  <button
-                    type="button"
-                    onClick={() => setRevealedToken((cur) => cur === t.id ? null : t.id)}
-                    className="teacher-link-btn"
-                  >
-                    {revealedToken === t.id ? 'Hide link' : 'Show link'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeTeacher(t)}
-                    className="teacher-remove-btn"
-                    aria-label={`Remove ${t.label}`}
-                    title="Remove teacher"
-                  >
-                    ×
-                  </button>
-                </div>
-                {revealedToken === t.id && (
-                  <div className="teacher-url-row">
-                    <code className="teacher-url">{teacherUrl(t)}</code>
-                    <button type="button" onClick={() => copyUrl(t)} className="teacher-url-copy">
-                      {copiedId === t.id ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                )}
               </li>
             ))}
           </ul>
         )}
-        {showAddTeacher && (
-          <form
-            className="add-teacher"
-            onSubmit={(e) => { e.preventDefault(); addTeacher(); }}
-          >
-            <input
-              type="text"
-              placeholder="Name"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              disabled={creating}
-              autoFocus
-            />
-            <button type="submit" disabled={creating || !newLabel.trim()}>
-              {creating ? 'Adding…' : 'Add'}
-            </button>
-            <button
-              type="button"
-              className="add-teacher-cancel"
-              onClick={() => { setShowAddTeacher(false); setNewLabel(''); }}
-              disabled={creating}
-            >
-              Cancel
-            </button>
-          </form>
-        )}
-        <p className="teachers-note">
-          Each teacher gets a unique link. Anyone with the link can grade
-          your submissions, so treat it like a password.
-        </p>
         </div>
       </section>
 
@@ -453,15 +350,15 @@ export function Home() {
                 <span className="submissions-outbox-label">Send to:</span>
                 <div className="submissions-outbox-pick">
                   {teachers.map((t) => (
-                    <label key={t.id} className="submissions-outbox-radio">
+                    <label key={t.user_id} className="submissions-outbox-radio">
                       <input
                         type="radio"
                         name="submissions-teacher"
-                        checked={pickedTeacher === t.id}
-                        onChange={() => setPickedTeacher(t.id)}
+                        checked={pickedTeacher === t.user_id}
+                        onChange={() => setPickedTeacher(t.user_id)}
                         disabled={sending}
                       />
-                      <span>{t.label}</span>
+                      <span>{t.display_name}</span>
                     </label>
                   ))}
                 </div>
@@ -493,11 +390,7 @@ export function Home() {
         {submissions && submissions.length > 0 && (
           <ul className="submissions-list">
             {submissions.map((s) => (
-              <SubmissionRow
-                key={s.sent_at}
-                submission={s}
-                teachers={teachers ?? []}
-              />
+              <SubmissionRow key={s.sent_at} submission={s} />
             ))}
           </ul>
         )}
@@ -664,16 +557,14 @@ function JobCard({
 }
 
 function SubmissionRow({
-  submission, teachers,
+  submission,
 }: {
   submission: Submission;
-  teachers: Teacher[];
 }) {
-  const teacher = teachers.find((t) => t.id === submission.teacher_id);
-  const teacherLabel = teacher?.label ?? '(removed teacher)';
+  const teacherLabel = submission.reviewer_name;
   const total = submission.items.length;
   const reviewed = submission.items.filter(
-    (it) => it.attempt.reviews[submission.teacher_id] !== undefined,
+    (it) => it.attempt.reviews[submission.reviewer_id] !== undefined,
   ).length;
   const stateLabel = submission.state === 'returned' ? 'Ready to view' : 'Pending review';
   const stateClass = `submissions-state state-${submission.state}`;

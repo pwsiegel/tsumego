@@ -879,6 +879,31 @@ warm ONNX session in the parent is reused. The old serial
 `_iter_ingest_events` (and its BBOX_TEST_DIR side effects) is gone; the
 bbox-test endpoints already manage that directory themselves.
 
+## 2026-04-28 — token teacher links → IAP-authed user links
+
+Capability-URL teacher links (`/teacher/<token>`) didn't survive contact
+with IAP: IAP wraps the entire Cloud Run service, so the token URL still
+required a Google login, defeating the share-a-link UX. The cheaper-
+hosting workaround (HTTPS LB w/ per-backend IAP) costs ~$20/mo, which
+isn't worth it for a two-user app.
+
+Replaced the token model with directed student→teacher links stored in
+`attempts/{student_uid}/links.json`. Reviewer routes are now under
+`/api/study/teacher/students/{student_uid}/...` and gated by
+`links.is_teacher_of`. The frontend has a `/teacher` page that lists
+students who've linked the caller (or auto-redirects to the only one);
+the home page shows a "teacher view" nav link when the caller has
+linked students.
+
+Bootstrap is manual: `python -m goapp.cli.link --student a@x --teacher
+b@x`. No invite/accept UX yet — fine while there are two users. The
+teacher's gmail was added to IAP allowlist, the GCS link was written
+directly via gsutil, and all legacy attempts + `teachers/teacher_*.json`
+records were purged from local + GCS to start fresh.
+
+Self-links (`add_teacher(uid, uid)`) are now allowed: in dev mode the
+single `local` user wears both hats.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have

@@ -14,19 +14,19 @@ class Review(BaseModel):
 
 
 class Attempt(BaseModel):
-    """Student-facing attempt with the full per-teacher reviews map."""
+    """Student-facing attempt with the full per-reviewer reviews map."""
     id: str
     problem_id: str
     moves: list[Move]
     submitted_at: str
-    sent_to: list[str] = []
+    sent_to: list[str] = []   # reviewer user_ids
     sent_at: str | None = None
-    reviews: dict[str, Review] = {}
+    reviews: dict[str, Review] = {}  # keyed by reviewer user_id
     acked_at: str | None = None
 
 
 class TeacherAttempt(BaseModel):
-    """Teacher-facing attempt — only this teacher's review is exposed."""
+    """Reviewer-facing attempt — only this reviewer's review is exposed."""
     id: str
     problem_id: str
     moves: list[Move]
@@ -80,42 +80,33 @@ class TeacherBundleResponse(BaseModel):
     items: list[TeacherAttemptWithProblem]
 
 
-# --- teachers ---
+# --- linked users (teachers as seen from the student, students as seen
+# from the teacher) ---
 
 
-class Teacher(BaseModel):
-    id: str
-    label: str
-    created_at: str
+class LinkedUser(BaseModel):
+    user_id: str
+    display_name: str       # falls back to user_id
 
 
-class TeacherWithUrl(Teacher):
-    token: str
-    url: str               # frontend route, e.g. "/teacher/<token>"
+class LinkedTeachersResponse(BaseModel):
+    teachers: list[LinkedUser]
 
 
-class TeachersResponse(BaseModel):
-    teachers: list[TeacherWithUrl]
-
-
-class CreateTeacherRequest(BaseModel):
-    label: str
-
-
-class UpdateTeacherRequest(BaseModel):
-    label: str
+class LinkedStudentsResponse(BaseModel):
+    students: list[LinkedUser]
 
 
 # --- batch ---
 
 
 class SendBatchRequest(BaseModel):
-    teacher_id: str
+    teacher_user_id: str    # reviewer's user_id
 
 
 class SendBatchResponse(BaseModel):
     sent_count: int
-    teacher_id: str
+    teacher_user_id: str
     sent_at: str
 
 
@@ -125,8 +116,9 @@ class BatchResponse(BaseModel):
 
 class Submission(BaseModel):
     sent_at: str
-    teacher_id: str
-    state: str             # "pending" | "returned" | "acked"
+    reviewer_id: str        # reviewer user_id
+    reviewer_name: str      # display name of the reviewer
+    state: str              # "pending" | "returned" | "acked"
     items: list[AttemptWithProblem]
 
 
@@ -137,16 +129,6 @@ class SubmissionsResponse(BaseModel):
 class AckSubmissionResponse(BaseModel):
     sent_at: str
     acked_count: int
-
-
-# --- teacher-side identity (so the UI knows who it's grading as) ---
-
-
-class TeacherMe(BaseModel):
-    id: str
-    label: str
-    student: str           # who's asking the teacher to review (user_id)
-    student_name: str      # student's configured display name (falls back to user_id)
 
 
 # --- profile (per-user settings) ---

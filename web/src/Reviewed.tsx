@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type AttemptWithProblem, type Teacher } from './api';
+import { api, type AttemptWithProblem, type LinkedUser } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
 import './Reviewed.css';
@@ -14,7 +14,7 @@ type ViewMode = 'grouped' | 'flat';
  * (`sent_at`); the "View all" toggle flattens into one ungrouped list. */
 export function Reviewed() {
   const [items, setItems] = useState<AttemptWithProblem[] | null>(null);
-  const [teachers, setTeachers] = useState<Teacher[] | null>(null);
+  const [teachers, setTeachers] = useState<LinkedUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>('grouped');
 
@@ -25,8 +25,8 @@ export function Reviewed() {
   }, []);
 
   const teachersById = useMemo(() => {
-    const m = new Map<string, Teacher>();
-    for (const t of teachers ?? []) m.set(t.id, t);
+    const m = new Map<string, LinkedUser>();
+    for (const t of teachers ?? []) m.set(t.user_id, t);
     return m;
   }, [teachers]);
 
@@ -124,7 +124,7 @@ function ReviewedRow({
   item, teachersById,
 }: {
   item: AttemptWithProblem;
-  teachersById: Map<string, Teacher>;
+  teachersById: Map<string, LinkedUser>;
 }) {
   const stones: Stone[] = (item.problem.stones ?? []).map((s) => ({
     x: s.col, y: s.row, color: s.color as 'B' | 'W',
@@ -136,7 +136,7 @@ function ReviewedRow({
 
   const reviews = Object.entries(item.attempt.reviews).map(([tid, r]) => ({
     teacher_id: tid,
-    label: teachersById.get(tid)?.label ?? '(removed teacher)',
+    label: teachersById.get(tid)?.display_name ?? tid,
     verdict: r.verdict,
     reviewed_at: r.reviewed_at,
   }));

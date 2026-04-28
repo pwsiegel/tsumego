@@ -1,9 +1,10 @@
-"""Solve attempts, batches, teachers, and per-teacher reviews.
+"""Solve attempts, batches, and reviewer-side review endpoints.
 
-Two distinct auth surfaces in one router:
+Two surfaces, both gated by the same IAP-derived user_id:
 
-* `/api/study/...`   — student endpoints, auth via IAP user_id.
-* `/api/teacher/<token>/...` — anonymous, gated by the per-teacher token.
+* `/api/study/...`         — student endpoints (the caller's own data).
+* `/api/study/teacher/...` — reviewer endpoints (data of students who
+                              have linked the caller as their teacher).
 """
 
 import logging
@@ -12,26 +13,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from ...auth import user_id_from_request
+from ...links import is_teacher_of, list_teachers, students_of
 from ...paths import tsumego_dir
 from ...profile import display_name, load_profile, save_profile
 from ...study import (
     ack_submission,
     attempts_for_problem,
-    create_teacher,
-    delete_teacher,
     list_submissions,
-    list_teachers,
     list_unsent,
     load_attempt,
-    pending_for_teacher,
+    pending_for_reviewer,
     problem_statuses,
-    resolve_token,
     reviewed_attempts,
-    reviewed_by_teacher,
+    reviewed_by_reviewer,
     save_attempt,
-    send_to_teacher,
+    send_to_reviewer,
     set_review,
-    update_teacher_label,
 )
 from ...tsumego import load_problem
 from ..tsumego.schemas import TsumegoStone
@@ -42,7 +39,9 @@ from .schemas import (
     AttemptsResponse,
     AttemptWithProblem,
     BatchResponse,
-    CreateTeacherRequest,
+    LinkedStudentsResponse,
+    LinkedTeachersResponse,
+    LinkedUser,
     Move,
     Profile,
     ProblemStatus,
@@ -58,11 +57,7 @@ from .schemas import (
     TeacherAttempt,
     TeacherAttemptWithProblem,
     TeacherBundleResponse,
-    TeacherMe,
-    TeachersResponse,
-    TeacherWithUrl,
     UpdateProfileRequest,
-    UpdateTeacherRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -85,8 +80,8 @@ def _attempt_schema(a: dict) -> Attempt:
     )
 
 
-def _teacher_attempt_schema(a: dict, teacher_id: str) -> TeacherAttempt:
-    review = a.get("reviews", {}).get(teacher_id)
+def _teacher_attempt_schema(a: dict, reviewer_uid: str) -> TeacherAttempt:
+    review = a.get("reviews", {}).get(reviewer_uid)
     return TeacherAttempt(
         id=a["id"],
         problem_id=a["problem_id"],
@@ -113,7 +108,7 @@ def _bundle(user_id: str, attempts: list[dict]) -> list[AttemptWithProblem]:
     for a in attempts:
         p = load_problem(user_id, a["problem_id"])
         if p is None:
-            continue   # problem deleted; orphaned attempt is silently skipped
+            continue
         out.append(AttemptWithProblem(
             attempt=_attempt_schema(a),
             problem=_problem_summary(p),
@@ -122,28 +117,27 @@ def _bundle(user_id: str, attempts: list[dict]) -> list[AttemptWithProblem]:
 
 
 def _teacher_bundle(
-    user_id: str, teacher_id: str, attempts: list[dict],
+    student_uid: str, reviewer_uid: str, attempts: list[dict],
 ) -> list[TeacherAttemptWithProblem]:
     out: list[TeacherAttemptWithProblem] = []
     for a in attempts:
-        p = load_problem(user_id, a["problem_id"])
+        p = load_problem(student_uid, a["problem_id"])
         if p is None:
             continue
         out.append(TeacherAttemptWithProblem(
-            attempt=_teacher_attempt_schema(a, teacher_id),
+            attempt=_teacher_attempt_schema(a, reviewer_uid),
             problem=_problem_summary(p),
         ))
     return out
 
 
-def _teacher_with_url(rec: dict) -> TeacherWithUrl:
-    return TeacherWithUrl(
-        id=rec["id"],
-        label=rec.get("label", "Teacher"),
-        created_at=rec["created_at"],
-        token=rec["token"],
-        url=f"/teacher/{rec['token']}",
-    )
+def _linked(user_id: str) -> LinkedUser:
+    return LinkedUser(user_id=user_id, display_name=display_name(user_id))
+
+
+def _require_teacher_of(reviewer_uid: str, student_uid: str) -> None:
+    if not is_teacher_of(reviewer_uid, student_uid):
+        raise HTTPException(status_code=403, detail="not a linked teacher of this student")
 
 
 # --- student endpoints: attempts ---
@@ -194,16 +188,16 @@ def get_batch_endpoint(user_id: str = UserId) -> BatchResponse:
 def send_batch_endpoint(
     req: SendBatchRequest, user_id: str = UserId,
 ) -> SendBatchResponse:
-    if not req.teacher_id:
-        raise HTTPException(status_code=400, detail="teacher_id required")
+    if not req.teacher_user_id:
+        raise HTTPException(status_code=400, detail="teacher_user_id required")
     try:
-        sent = send_to_teacher(user_id, req.teacher_id)
+        sent = send_to_reviewer(user_id, req.teacher_user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     sent_at = sent[0]["sent_at"] if sent else ""
     return SendBatchResponse(
         sent_count=len(sent),
-        teacher_id=req.teacher_id,
+        teacher_user_id=req.teacher_user_id,
         sent_at=sent_at,
     )
 
@@ -214,7 +208,8 @@ def send_batch_endpoint(
 def _submission_schema(user_id: str, sub: dict) -> Submission:
     return Submission(
         sent_at=sub["sent_at"],
-        teacher_id=sub["teacher_id"],
+        reviewer_id=sub["reviewer_id"],
+        reviewer_name=display_name(sub["reviewer_id"]),
         state=sub["state"],
         items=_bundle(user_id, sub["attempts"]),
     )
@@ -249,37 +244,14 @@ def ack_submission_endpoint(
     return AckSubmissionResponse(sent_at=sent_at, acked_count=n)
 
 
-# --- student endpoints: teachers ---
+# --- student endpoints: linked teachers ---
 
 
-@router.get("/api/study/teachers", response_model=TeachersResponse)
-def list_teachers_endpoint(user_id: str = UserId) -> TeachersResponse:
-    return TeachersResponse(teachers=[_teacher_with_url(t) for t in list_teachers(user_id)])
-
-
-@router.post("/api/study/teachers", response_model=TeacherWithUrl)
-def create_teacher_endpoint(
-    req: CreateTeacherRequest, user_id: str = UserId,
-) -> TeacherWithUrl:
-    rec = create_teacher(user_id, req.label)
-    return _teacher_with_url(rec)
-
-
-@router.patch("/api/study/teachers/{teacher_id}", response_model=TeacherWithUrl)
-def update_teacher_endpoint(
-    teacher_id: str, req: UpdateTeacherRequest, user_id: str = UserId,
-) -> TeacherWithUrl:
-    rec = update_teacher_label(user_id, teacher_id, req.label)
-    if rec is None:
-        raise HTTPException(status_code=404, detail=teacher_id)
-    return _teacher_with_url(rec)
-
-
-@router.delete("/api/study/teachers/{teacher_id}")
-def delete_teacher_endpoint(teacher_id: str, user_id: str = UserId) -> dict:
-    if not delete_teacher(user_id, teacher_id):
-        raise HTTPException(status_code=404, detail=teacher_id)
-    return {"deleted": teacher_id}
+@router.get("/api/study/teachers", response_model=LinkedTeachersResponse)
+def list_linked_teachers_endpoint(user_id: str = UserId) -> LinkedTeachersResponse:
+    return LinkedTeachersResponse(
+        teachers=[_linked(uid) for uid in list_teachers(user_id)],
+    )
 
 
 # --- student endpoints: profile ---
@@ -299,79 +271,91 @@ def update_profile_endpoint(
     return Profile(**saved)
 
 
-# --- teacher endpoints (capability URL) ---
+# --- reviewer endpoints (authenticated; gated by links.is_teacher_of) ---
 
 
-def _teacher_ctx(token: str) -> tuple[str, dict]:
-    res = resolve_token(token)
-    if res is None:
-        raise HTTPException(status_code=404, detail="invalid token")
-    return res
-
-
-@router.get("/api/teacher/{token}/me", response_model=TeacherMe)
-def teacher_me_endpoint(token: str) -> TeacherMe:
-    uid, rec = _teacher_ctx(token)
-    return TeacherMe(
-        id=rec["id"],
-        label=rec.get("label", "Teacher"),
-        student=uid,
-        student_name=display_name(uid),
+@router.get("/api/study/teacher/students", response_model=LinkedStudentsResponse)
+def list_linked_students_endpoint(user_id: str = UserId) -> LinkedStudentsResponse:
+    return LinkedStudentsResponse(
+        students=[_linked(uid) for uid in students_of(user_id)],
     )
 
 
-@router.get("/api/teacher/{token}/queue", response_model=TeacherBundleResponse)
-def teacher_queue_endpoint(token: str) -> TeacherBundleResponse:
-    uid, rec = _teacher_ctx(token)
-    items = pending_for_teacher(uid, rec["id"])
-    return TeacherBundleResponse(items=_teacher_bundle(uid, rec["id"], items))
+@router.get(
+    "/api/study/teacher/students/{student_uid}/queue",
+    response_model=TeacherBundleResponse,
+)
+def teacher_queue_endpoint(
+    student_uid: str, user_id: str = UserId,
+) -> TeacherBundleResponse:
+    _require_teacher_of(user_id, student_uid)
+    items = pending_for_reviewer(student_uid, user_id)
+    return TeacherBundleResponse(items=_teacher_bundle(student_uid, user_id, items))
 
 
-@router.get("/api/teacher/{token}/reviewed", response_model=TeacherBundleResponse)
-def teacher_reviewed_endpoint(token: str) -> TeacherBundleResponse:
-    uid, rec = _teacher_ctx(token)
-    items = reviewed_by_teacher(uid, rec["id"])
-    return TeacherBundleResponse(items=_teacher_bundle(uid, rec["id"], items))
+@router.get(
+    "/api/study/teacher/students/{student_uid}/reviewed",
+    response_model=TeacherBundleResponse,
+)
+def teacher_reviewed_endpoint(
+    student_uid: str, user_id: str = UserId,
+) -> TeacherBundleResponse:
+    _require_teacher_of(user_id, student_uid)
+    items = reviewed_by_reviewer(student_uid, user_id)
+    return TeacherBundleResponse(items=_teacher_bundle(student_uid, user_id, items))
 
 
-@router.get("/api/teacher/{token}/attempts/{attempt_id}", response_model=TeacherAttemptWithProblem)
-def teacher_attempt_endpoint(token: str, attempt_id: str) -> TeacherAttemptWithProblem:
-    uid, rec = _teacher_ctx(token)
-    a = load_attempt(uid, attempt_id)
-    if a is None or rec["id"] not in a.get("sent_to", []):
+@router.get(
+    "/api/study/teacher/students/{student_uid}/attempts/{attempt_id}",
+    response_model=TeacherAttemptWithProblem,
+)
+def teacher_attempt_endpoint(
+    student_uid: str, attempt_id: str, user_id: str = UserId,
+) -> TeacherAttemptWithProblem:
+    _require_teacher_of(user_id, student_uid)
+    a = load_attempt(student_uid, attempt_id)
+    if a is None or user_id not in a.get("sent_to", []):
         raise HTTPException(status_code=404, detail=attempt_id)
-    p = load_problem(uid, a["problem_id"])
+    p = load_problem(student_uid, a["problem_id"])
     if p is None:
         raise HTTPException(status_code=404, detail="problem missing")
     return TeacherAttemptWithProblem(
-        attempt=_teacher_attempt_schema(a, rec["id"]),
+        attempt=_teacher_attempt_schema(a, user_id),
         problem=_problem_summary(p),
     )
 
 
-@router.post("/api/teacher/{token}/attempts/{attempt_id}/review", response_model=TeacherAttempt)
+@router.post(
+    "/api/study/teacher/students/{student_uid}/attempts/{attempt_id}/review",
+    response_model=TeacherAttempt,
+)
 def teacher_review_endpoint(
-    token: str, attempt_id: str, req: ReviewRequest,
+    student_uid: str, attempt_id: str, req: ReviewRequest,
+    user_id: str = UserId,
 ) -> TeacherAttempt:
-    uid, rec = _teacher_ctx(token)
+    _require_teacher_of(user_id, student_uid)
     try:
-        out = set_review(uid, rec["id"], attempt_id, req.verdict)
+        out = set_review(student_uid, user_id, attempt_id, req.verdict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
     if out is None:
         raise HTTPException(status_code=404, detail=attempt_id)
-    return _teacher_attempt_schema(out, rec["id"])
+    return _teacher_attempt_schema(out, user_id)
 
 
-@router.get("/api/teacher/{token}/problems/{problem_id}/image.png")
-def teacher_problem_image_endpoint(token: str, problem_id: str) -> Response:
-    uid, _ = _teacher_ctx(token)
-    meta = load_problem(uid, problem_id)
+@router.get(
+    "/api/study/teacher/students/{student_uid}/problems/{problem_id}/image.png"
+)
+def teacher_problem_image_endpoint(
+    student_uid: str, problem_id: str, user_id: str = UserId,
+) -> Response:
+    _require_teacher_of(user_id, student_uid)
+    meta = load_problem(student_uid, problem_id)
     if meta is None or not meta.get("image"):
         raise HTTPException(status_code=404, detail="image not found")
-    path = tsumego_dir(uid) / meta["image"]
+    path = tsumego_dir(student_uid) / meta["image"]
     if not path.exists():
         raise HTTPException(status_code=404, detail="image file missing")
     return Response(content=path.read_bytes(), media_type="image/png")
