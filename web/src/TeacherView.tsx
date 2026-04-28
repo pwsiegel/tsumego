@@ -656,26 +656,6 @@ function DetailView({
             For <strong>{student.display_name}</strong>
           </div>
         </div>
-        <div className="teacher-nav">
-          <button onClick={goPrev} disabled={idx === 0}>
-            ‹ Prev
-          </button>
-          <button
-            onClick={saveAndContinue}
-            disabled={!verdict}
-            className="teacher-save-continue"
-            aria-label="Save review and continue to next problem"
-          >
-            Save & continue ›
-          </button>
-          <button
-            onClick={goNext}
-            disabled={idx >= total - 1}
-            aria-label="Skip to next problem without saving"
-          >
-            Skip ›
-          </button>
-        </div>
       </header>
 
       <div className="teacher-problem-meta">
@@ -718,6 +698,13 @@ function DetailView({
 
       <div className="teacher-actions">
         <button
+          className="teacher-step"
+          onClick={goPrev}
+          disabled={idx === 0}
+        >
+          ‹ Prev
+        </button>
+        <button
           className={`verdict correct${verdict === 'correct' ? ' selected' : ''}`}
           onClick={() => onPick('correct')}
         >
@@ -728,6 +715,22 @@ function DetailView({
           onClick={() => onPick('incorrect')}
         >
           ✗ Incorrect
+        </button>
+        <button
+          onClick={saveAndContinue}
+          disabled={!verdict}
+          className="teacher-save-continue"
+          aria-label="Save review and continue to next problem"
+        >
+          Save & continue ›
+        </button>
+        <button
+          className="teacher-step"
+          onClick={goNext}
+          disabled={idx >= total - 1}
+          aria-label="Skip to next problem without saving"
+        >
+          Skip ›
         </button>
       </div>
 

@@ -132,7 +132,6 @@ export function SolveView() {
     goToNext();
   };
 
-  const backToHome = () => navigate('/');
   const goPrev = () => {
     if (navIndex.prev) {
       navigate(`/collections/${encodeURIComponent(source)}/solve/${navIndex.prev.id}${navSuffix}`);
@@ -189,25 +188,6 @@ export function SolveView() {
             {problem.black_to_play ? 'Black to play' : 'White to play'}
           </div>
         </div>
-        <div className="solve-nav">
-          <button onClick={goPrev} disabled={!navIndex.prev} aria-label="Previous problem">‹ Prev</button>
-          <button
-            onClick={saveAndContinue}
-            disabled={moves.length === 0 || submitting}
-            className="solve-save-continue"
-            aria-label="Save and continue to next problem"
-          >
-            {submitting ? 'Saving…' : 'Save & continue ›'}
-          </button>
-          <button
-            onClick={skip}
-            disabled={!navIndex.next || submitting}
-            aria-label="Skip to next problem without saving"
-          >
-            Skip ›
-          </button>
-          <button onClick={backToHome} className="solve-done">Done</button>
-        </div>
       </header>
 
       <div className="solve-workspace">
@@ -245,6 +225,24 @@ export function SolveView() {
         <div className="solve-actions">
           <button onClick={undo} disabled={moves.length === 0 || submitting}>Undo</button>
           <button onClick={clear} disabled={moves.length === 0 || submitting}>Clear</button>
+          <button onClick={goPrev} disabled={!navIndex.prev || submitting} aria-label="Previous problem">
+            ‹ Prev
+          </button>
+          <button
+            onClick={saveAndContinue}
+            disabled={moves.length === 0 || submitting}
+            className="solve-save-continue"
+            aria-label="Save and continue to next problem"
+          >
+            {submitting ? 'Saving…' : 'Save & continue ›'}
+          </button>
+          <button
+            onClick={skip}
+            disabled={!navIndex.next || submitting}
+            aria-label="Skip to next problem without saving"
+          >
+            Skip ›
+          </button>
         </div>
       </div>
 

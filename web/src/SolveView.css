@@ -23,45 +23,17 @@
   font-size: 1rem;
 }
 
-.solve-nav {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.solve-nav button {
-  padding: 0.4rem 0.8rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--bg);
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-
-.solve-nav button:hover:not(:disabled) {
-  background: var(--border-softer);
-}
-
-.solve-nav button:disabled {
-  color: var(--text-bbb);
-  cursor: default;
-}
-
-.solve-nav .solve-done {
-  margin-left: 0.4rem;
-}
-
-.solve-nav .solve-save-continue {
+.solve-actions .solve-save-continue {
   background: var(--indigo);
   color: var(--bg);
   border-color: var(--indigo-strong);
 }
 
-.solve-nav .solve-save-continue:hover:not(:disabled) {
+.solve-actions .solve-save-continue:hover:not(:disabled) {
   background: var(--indigo-strong);
 }
 
-.solve-nav .solve-save-continue:disabled {
+.solve-actions .solve-save-continue:disabled {
   background: var(--indigo-soft);
   border-color: var(--indigo-soft);
   color: var(--bg);
@@ -101,9 +73,8 @@
 .solve-info {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.75rem 1.25rem;
   margin: 0.75rem 0;
   color: var(--text-tertiary);
   font-size: 0.95rem;

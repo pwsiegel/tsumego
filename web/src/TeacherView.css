@@ -68,20 +68,45 @@
   margin-left: 0.25rem;
 }
 
-.teacher-nav .teacher-save-continue {
+.teacher-save-continue {
+  padding: 0.7rem 1.4rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
   background: var(--indigo);
   color: var(--bg);
-  border-color: var(--indigo-strong);
+  border: 1px solid var(--indigo-strong);
 }
 
-.teacher-nav .teacher-save-continue:hover:not(:disabled) {
+.teacher-save-continue:hover:not(:disabled) {
   background: var(--indigo-strong);
 }
 
-.teacher-nav .teacher-save-continue:disabled {
+.teacher-save-continue:disabled {
   background: var(--indigo-soft);
   border-color: var(--indigo-soft);
   color: var(--bg);
+  cursor: not-allowed;
+}
+
+.teacher-step {
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.teacher-step:hover:not(:disabled) {
+  background: var(--border-softer);
+}
+
+.teacher-step:disabled {
+  color: var(--text-bbb);
+  cursor: default;
 }
 
 .teacher-problem-meta {
