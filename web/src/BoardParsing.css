@@ -12,6 +12,12 @@
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+  /* keep toolbar contents from sliding under the floating theme toggle */
+  padding-right: 3rem;
+}
+
+.bp-toolbar-row2 {
+  padding-right: 0;
 }
 
 .bp-toggle {

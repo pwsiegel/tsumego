@@ -12,6 +12,8 @@
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+  /* keep toolbar contents from sliding under the floating theme toggle */
+  padding-right: 3rem;
 }
 
 .upload-btn {
@@ -22,7 +24,8 @@
   border: 1px solid var(--text-faint);
   border-radius: 4px;
   cursor: pointer;
-  background: #f7f7f7;
+  background: var(--bg-subtle);
+  color: var(--text);
 }
 .upload-btn:hover {
   background: var(--bg-soft);

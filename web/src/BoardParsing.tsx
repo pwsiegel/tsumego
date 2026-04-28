@@ -174,19 +174,6 @@ export function BoardParsing({ onExit }: Props) {
             }}
           />
         </label>
-        <label className="peak-slider">
-          peak_thresh: {peakThresh.toFixed(2)}
-          <input
-            type="range" min={0.05} max={0.95} step={0.05}
-            value={peakThresh}
-            onChange={(e) => setPeakThresh(Number(e.target.value))}
-          />
-        </label>
-        <ToggleLabel label="stones" checked={showStones} onChange={setShowStones} />
-        <ToggleLabel label="skeleton" checked={showSkeleton} onChange={setShowSkeleton} />
-        <ToggleLabel label="segments" checked={showSegments} onChange={setShowSegments} />
-        <ToggleLabel label="edges" checked={showEdges} onChange={setShowEdges} />
-        <ToggleLabel label="lattice" checked={showLattice} onChange={setShowLattice} />
         <div className="bp-status">
           {boards.length === 0
             ? 'No PDF uploaded.'
@@ -214,6 +201,21 @@ export function BoardParsing({ onExit }: Props) {
                   disabled={boards.length === 0 || safeSelected >= boards.length - 1}>▶</button>
           <button onClick={onExit}>Done</button>
         </div>
+      </div>
+      <div className="bp-toolbar bp-toolbar-row2">
+        <label className="peak-slider">
+          peak_thresh: {peakThresh.toFixed(2)}
+          <input
+            type="range" min={0.05} max={0.95} step={0.05}
+            value={peakThresh}
+            onChange={(e) => setPeakThresh(Number(e.target.value))}
+          />
+        </label>
+        <ToggleLabel label="stones" checked={showStones} onChange={setShowStones} />
+        <ToggleLabel label="skeleton" checked={showSkeleton} onChange={setShowSkeleton} />
+        <ToggleLabel label="segments" checked={showSegments} onChange={setShowSegments} />
+        <ToggleLabel label="edges" checked={showEdges} onChange={setShowEdges} />
+        <ToggleLabel label="lattice" checked={showLattice} onChange={setShowLattice} />
       </div>
 
       {status && <div className="bp-message">{status}</div>}
