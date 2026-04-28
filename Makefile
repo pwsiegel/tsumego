@@ -1,5 +1,6 @@
 .PHONY: help setup api web dev lint \
        synth train-boards train-stones validate export-models \
+       ingest-pdf \
        docker-up docker-down \
        deploy logs \
        modal-upload-synth modal-gen-synth modal-train-smoke modal-train-boards modal-train-stones modal-pull-weights
@@ -65,6 +66,22 @@ validate: ## Run pipeline against val dataset and print report
 
 export-models: ## Export trained .pt weights to ONNX for the lean serving image
 	uv --directory backend run --extra ml python scripts/export_onnx.py
+
+# ---------------------------------------------------------------------------
+# Local PDF ingest (offload board detection from Cloud Run)
+# ---------------------------------------------------------------------------
+
+# Run as: make ingest-pdf USER=pwsiegel@gmail.com PDF=/path/to/book.pdf
+# Detects boards on the laptop, writes problems under $GOAPP_DATA_DIR, then
+# rsyncs the user's tsumego/ directory to the GCS bucket. Pass NO_UPLOAD=1
+# to skip the upload step.
+ingest-pdf: ## Detect boards on a PDF locally and sync to GCS (USER=email PDF=path)
+	@if [ -z "$(USER)" ] || [ -z "$(PDF)" ]; then \
+		echo "usage: make ingest-pdf USER=email-or-id PDF=/path/to/file.pdf"; \
+		exit 2; \
+	fi
+	uv --directory backend run python -m goapp.cli.ingest_pdf \
+		--user "$(USER)" --pdf "$(PDF)" $(if $(NO_UPLOAD),--no-upload,)
 
 # ---------------------------------------------------------------------------
 # Docker

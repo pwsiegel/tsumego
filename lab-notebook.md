@@ -846,6 +846,31 @@ Result: image **~2 GB → 755 MB**, container reaches `models_ready`
 within ~6 s of `docker run`. Cold start should now be small enough to
 consider dropping `--no-cpu-throttling` from the Cloud Run config.
 
+## 2026-04-27 — local PDF ingest CLI
+
+ONNX inference on Cloud Run's 2-vCPU runtime is still painfully slow
+(minutes per book) and scaling up CPU/GPU on Cloud Run for a one-user
+app isn't worth the spend. Detection, however, runs much faster on the
+laptop's M3 Max — and the ingest output is just a tree of files under
+`tsumego/{user_id}/` that already mirror the GCS bucket layout.
+
+Added `make ingest-pdf USER=email-or-id PDF=path/to/book.pdf`, backed by
+`goapp.cli.ingest_pdf`. Each page is fanned out to a worker process via
+`ProcessPoolExecutor` (default `cpu_count - 2`); the worker renders the
+page, runs board detection, and discretizes each detected board. The
+main process collects per-page results in order, assigns
+`source_board_idx`, and calls `save_problem` serially. Each worker pins
+OMP/MKL/OpenBLAS/cv2 to a single thread so N workers don't oversubscribe
+the CPU. After detection, `gsutil rsync` pushes the per-user `tsumego/`
+directory up to `gs://tsumego-pwsiegel-data/data/tsumego/{user_id}/`.
+Email arguments are hashed via `_hash_email` to match the production
+IAP-derived id; raw 16-char ids pass through unchanged.
+
+Tradeoff: bypasses the in-progress job-state tracking and the upload
+flow's IAP scoping — caller is trusted to pass the right user id and to
+not run two ingests concurrently against the same user. Fine for the
+single-user case.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
