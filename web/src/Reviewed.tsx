@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type AttemptWithProblem, type LinkedUser } from './api';
+import {
+  api,
+  type AttemptWithProblem,
+  type LinkedUser,
+  type ProblemStatus,
+} from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
 import './Reviewed.css';
@@ -15,6 +20,7 @@ type ViewMode = 'grouped' | 'flat';
 export function Reviewed() {
   const [items, setItems] = useState<AttemptWithProblem[] | null>(null);
   const [teachers, setTeachers] = useState<LinkedUser[] | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, ProblemStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ViewMode>('grouped');
 
@@ -22,6 +28,9 @@ export function Reviewed() {
     Promise.all([api.study.listReviewed(), api.study.listTeachers()])
       .then(([its, ts]) => { setItems(its); setTeachers(ts); })
       .catch((e) => setError(String(e)));
+    api.study.problemStatuses()
+      .then(setStatuses)
+      .catch(() => {});
   }, []);
 
   const teachersById = useMemo(() => {
@@ -31,6 +40,23 @@ export function Reviewed() {
   }, [teachers]);
 
   const groups = useMemo(() => groupBySentAt(items ?? []), [items]);
+
+  const unretriedIncorrect = useMemo(() => {
+    return (items ?? []).filter((it) => {
+      const reviews = Object.values(it.attempt.reviews);
+      if (reviews.length === 0) return false;
+      const latest = reviews.reduce(
+        (a, b) => (a.reviewed_at > b.reviewed_at ? a : b),
+      );
+      if (latest.verdict !== 'incorrect') return false;
+      const latestAt = statuses[it.problem.id]?.latest_attempt_at;
+      return !(latestAt != null && latestAt > it.attempt.submitted_at);
+    });
+  }, [items, statuses]);
+
+  const retryHref = unretriedIncorrect.length > 0
+    ? `/collections/${encodeURIComponent(unretriedIncorrect[0].problem.source)}/solve/${unretriedIncorrect[0].problem.id}?retry=incorrect`
+    : null;
 
   if (items === null || teachers === null) {
     return (
@@ -51,21 +77,28 @@ export function Reviewed() {
             : `${items.length} problem${items.length === 1 ? '' : 's'} reviewed.`}
         </div>
         {items.length > 0 && (
-          <div className="reviewed-toggle">
-            <button
-              type="button"
-              className={`reviewed-toggle-btn${mode === 'grouped' ? ' active' : ''}`}
-              onClick={() => setMode('grouped')}
-            >
-              By submission
-            </button>
-            <button
-              type="button"
-              className={`reviewed-toggle-btn${mode === 'flat' ? ' active' : ''}`}
-              onClick={() => setMode('flat')}
-            >
-              View all
-            </button>
+          <div className="reviewed-header-actions">
+            <div className="reviewed-toggle">
+              <button
+                type="button"
+                className={`reviewed-toggle-btn${mode === 'grouped' ? ' active' : ''}`}
+                onClick={() => setMode('grouped')}
+              >
+                By submission
+              </button>
+              <button
+                type="button"
+                className={`reviewed-toggle-btn${mode === 'flat' ? ' active' : ''}`}
+                onClick={() => setMode('flat')}
+              >
+                View all
+              </button>
+            </div>
+            {retryHref && (
+              <Link to={retryHref} className="submission-retry-btn">
+                Retry incorrect ({unretriedIncorrect.length})
+              </Link>
+            )}
           </div>
         )}
       </header>
@@ -75,7 +108,12 @@ export function Reviewed() {
       {items.length > 0 && mode === 'flat' && (
         <ul className="reviewed-list">
           {items.map((it) => (
-            <ReviewedRow key={it.attempt.id} item={it} teachersById={teachersById} />
+            <ReviewedRow
+              key={it.attempt.id}
+              item={it}
+              teachersById={teachersById}
+              status={statuses[it.problem.id] ?? null}
+            />
           ))}
         </ul>
       )}
@@ -94,7 +132,12 @@ export function Reviewed() {
               </h2>
               <ul className="reviewed-list">
                 {g.items.map((it) => (
-                  <ReviewedRow key={it.attempt.id} item={it} teachersById={teachersById} />
+                  <ReviewedRow
+                    key={it.attempt.id}
+                    item={it}
+                    teachersById={teachersById}
+                    status={statuses[it.problem.id] ?? null}
+                  />
                 ))}
               </ul>
             </section>
@@ -121,10 +164,11 @@ function groupBySentAt(items: AttemptWithProblem[]): {
 }
 
 function ReviewedRow({
-  item, teachersById,
+  item, teachersById, status,
 }: {
   item: AttemptWithProblem;
   teachersById: Map<string, LinkedUser>;
+  status: ProblemStatus | null;
 }) {
   const stones: Stone[] = (item.problem.stones ?? []).map((s) => ({
     x: s.col, y: s.row, color: s.color as 'B' | 'W',
@@ -144,6 +188,8 @@ function ReviewedRow({
   reviews.sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at));
 
   const solveHref = `/collections/${encodeURIComponent(item.problem.source)}/solve/${item.problem.id}`;
+  const retried = status?.latest_attempt_at != null
+    && status.latest_attempt_at > item.attempt.submitted_at;
 
   return (
     <li className="reviewed-row">
@@ -169,7 +215,14 @@ function ReviewedRow({
           </div>
           <ul className="reviewed-verdicts">
             {reviews.map((r) => (
-              <li key={r.teacher_id} className={`reviewed-verdict v-${r.verdict}`}>
+              <li
+                key={r.teacher_id}
+                className={
+                  retried && r.verdict === 'incorrect'
+                    ? 'reviewed-verdict v-incorrect-retried'
+                    : `reviewed-verdict v-${r.verdict}`
+                }
+              >
                 <span className="reviewed-verdict-mark">
                   {r.verdict === 'correct' ? '✓' : '✗'}
                 </span>
@@ -179,6 +232,12 @@ function ReviewedRow({
                 </span>
               </li>
             ))}
+            {retried && reviews.some((r) => r.verdict === 'incorrect') && (
+              <li className="reviewed-verdict v-retried">
+                <span className="reviewed-verdict-mark">↻</span>
+                <span className="reviewed-verdict-label">incorrect but retried</span>
+              </li>
+            )}
           </ul>
         </div>
       </Link>

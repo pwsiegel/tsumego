@@ -4,6 +4,7 @@ import { Board } from './Board';
 import {
   api,
   type Attempt,
+  type AttemptWithProblem,
   type LinkedUser,
   type ProblemStatus,
   type Submission as SubmissionT,
@@ -29,7 +30,8 @@ export function SolveView() {
   const [teachers, setTeachers] = useState<LinkedUser[]>([]);
   const [siblings, setSiblings] = useState<TsumegoProblem[] | null>(null);
   const [submission, setSubmission] = useState<SubmissionT | null>(null);
-  const [submissionStatuses, setSubmissionStatuses] = useState<Record<string, ProblemStatus>>({});
+  const [reviewedItems, setReviewedItems] = useState<AttemptWithProblem[] | null>(null);
+  const [problemStatuses, setProblemStatuses] = useState<Record<string, ProblemStatus>>({});
   const [moves, setMoves] = useState<MovePoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -72,31 +74,64 @@ export function SolveView() {
     return () => { cancelled = true; };
   }, [source]);
 
-  // Fetch the submission so we can show the teacher's verdict for the
-  // current problem and (in retry mode) walk through the incorrect ones.
+  // In retry mode (or when entered from a submission), fetch enough
+  // context to (a) display the teacher's verdict for the current
+  // problem and (b) walk a list of incorrect items. Two scopes:
+  //   * `from_submission` set: walk that submission's incorrect items
+  //   * `retry=incorrect` only: walk every reviewed problem the
+  //     student hasn't yet retried (cross-submission)
+  const retryGlobal = retry === 'incorrect' && !fromSubmission;
   useEffect(() => {
-    if (!fromSubmission) {
-      setSubmission(null);
-      setSubmissionStatuses({});
-      return;
-    }
     let cancelled = false;
-    api.study.getSubmission(fromSubmission)
-      .then((s) => !cancelled && setSubmission(s))
-      .catch(() => !cancelled && setSubmission(null));
-    api.study.problemStatuses()
-      .then((s) => !cancelled && setSubmissionStatuses(s))
-      .catch(() => {});
+    if (fromSubmission) {
+      api.study.getSubmission(fromSubmission)
+        .then((s) => !cancelled && setSubmission(s))
+        .catch(() => !cancelled && setSubmission(null));
+    } else {
+      setSubmission(null);
+    }
+    if (retryGlobal) {
+      api.study.listReviewed()
+        .then((r) => !cancelled && setReviewedItems(r))
+        .catch(() => !cancelled && setReviewedItems([]));
+    } else {
+      setReviewedItems(null);
+    }
+    if (fromSubmission || retryGlobal) {
+      api.study.problemStatuses()
+        .then((s) => !cancelled && setProblemStatuses(s))
+        .catch(() => {});
+    } else {
+      setProblemStatuses({});
+    }
     return () => { cancelled = true; };
-  }, [fromSubmission, id]);
+  }, [fromSubmission, retryGlobal, id]);
 
   const verdictForCurrent = useMemo(() => {
-    if (!submission) return null;
-    const item = submission.items.find((it) => it.problem.id === id);
-    const r = item?.attempt.reviews[submission.reviewer_id];
-    if (!r) return null;
-    return { verdict: r.verdict, teacherLabel: submission.reviewer_name };
-  }, [submission, id]);
+    if (submission) {
+      const item = submission.items.find((it) => it.problem.id === id);
+      const r = item?.attempt.reviews[submission.reviewer_id];
+      if (!r) return null;
+      return { verdict: r.verdict, teacherLabel: submission.reviewer_name };
+    }
+    if (retryGlobal && reviewedItems) {
+      const item = reviewedItems.find((it) => it.problem.id === id);
+      if (!item) return null;
+      const reviews = Object.values(item.attempt.reviews);
+      if (reviews.length === 0) return null;
+      const latest = reviews.reduce(
+        (a, b) => (a.reviewed_at > b.reviewed_at ? a : b),
+      );
+      const reviewerId = Object.keys(item.attempt.reviews).find(
+        (k) => item.attempt.reviews[k].reviewed_at === latest.reviewed_at,
+      );
+      const teacherLabel = teachers.find((t) => t.user_id === reviewerId)?.display_name
+        ?? reviewerId
+        ?? 'teacher';
+      return { verdict: latest.verdict, teacherLabel };
+    }
+    return null;
+  }, [submission, retryGlobal, reviewedItems, teachers, id]);
 
   // Walk the submission's incorrect items in retry mode; otherwise use
   // the collection's siblings list. `nav.prev`/`.next` carry both id and
@@ -114,8 +149,30 @@ export function SolveView() {
             return false;
           }
           if (it.problem.id === id) return true;
-          const latest = submissionStatuses[it.problem.id]?.latest_attempt_at;
+          const latest = problemStatuses[it.problem.id]?.latest_attempt_at;
           return !(latest != null && latest > it.attempt.submitted_at);
+        })
+        .map((it) => ({ id: it.problem.id, source: it.problem.source }));
+      const idx = list.findIndex((t) => t.id === id);
+      return {
+        idx,
+        prev: idx > 0 ? list[idx - 1] : null,
+        next: idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null,
+        total: list.length,
+      };
+    }
+    if (retryGlobal && reviewedItems) {
+      const list = reviewedItems
+        .filter((it) => {
+          const reviews = Object.values(it.attempt.reviews);
+          if (reviews.length === 0) return false;
+          const latest = reviews.reduce(
+            (a, b) => (a.reviewed_at > b.reviewed_at ? a : b),
+          );
+          if (latest.verdict !== 'incorrect') return false;
+          if (it.problem.id === id) return true;
+          const latestAt = problemStatuses[it.problem.id]?.latest_attempt_at;
+          return !(latestAt != null && latestAt > it.attempt.submitted_at);
         })
         .map((it) => ({ id: it.problem.id, source: it.problem.source }));
       const idx = list.findIndex((t) => t.id === id);
@@ -134,7 +191,7 @@ export function SolveView() {
       next: idx >= 0 && idx < siblings.length - 1 ? { id: siblings[idx + 1].id, source } : null,
       total: siblings.length,
     };
-  }, [retry, submission, submissionStatuses, siblings, id, source]);
+  }, [retry, retryGlobal, submission, reviewedItems, problemStatuses, siblings, id, source]);
 
   const stones: Stone[] = useMemo(() => {
     return (problem?.stones ?? []).map((s) => ({
@@ -234,6 +291,10 @@ export function SolveView() {
               className="back-link"
             >
               ← back to submission
+            </Link>
+          ) : retryGlobal ? (
+            <Link to="/reviewed" className="back-link">
+              ← submission history
             </Link>
           ) : (
             <Link
