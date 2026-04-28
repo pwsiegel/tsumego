@@ -49,6 +49,13 @@ export function Submission() {
   const reviewed = submission.items.filter(
     (it) => it.attempt.reviews[submission.reviewer_id] !== undefined,
   ).length;
+  const incorrect = submission.items.filter(
+    (it) => it.attempt.reviews[submission.reviewer_id]?.verdict === 'incorrect',
+  );
+  const firstIncorrect = incorrect[0];
+  const retryHref = firstIncorrect
+    ? `/collections/${encodeURIComponent(firstIncorrect.problem.source)}/solve/${firstIncorrect.problem.id}?from_submission=${encodeURIComponent(submission.sent_at)}&retry=incorrect`
+    : null;
 
   return (
     <div className="reviewed">
@@ -64,6 +71,11 @@ export function Submission() {
         </div>
         {submission.state === 'returned' && (
           <div className="submission-actions">
+            {retryHref && (
+              <Link to={retryHref} className="submission-retry-btn">
+                Retry incorrect ({incorrect.length})
+              </Link>
+            )}
             <button
               type="button"
               onClick={ack}

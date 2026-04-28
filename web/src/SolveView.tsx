@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type Attempt, type LinkedUser, type ProblemStatus, type TsumegoProblem } from './api';
+import {
+  api,
+  type Attempt,
+  type LinkedUser,
+  type ProblemStatus,
+  type Submission as SubmissionT,
+  type TsumegoProblem,
+} from './api';
 import { computeNumberedOverlay, type MovePoint } from './numberedMoves';
 import type { Stone } from './types';
 import './SolveView.css';
@@ -15,11 +22,13 @@ export function SolveView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromSubmission = searchParams.get('from_submission');
+  const retry = searchParams.get('retry');
 
   const [problem, setProblem] = useState<TsumegoProblem | null>(null);
   const [attempts, setAttempts] = useState<Attempt[] | null>(null);
   const [teachers, setTeachers] = useState<LinkedUser[]>([]);
   const [siblings, setSiblings] = useState<TsumegoProblem[] | null>(null);
+  const [submission, setSubmission] = useState<SubmissionT | null>(null);
   const [moves, setMoves] = useState<MovePoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -62,15 +71,58 @@ export function SolveView() {
     return () => { cancelled = true; };
   }, [source]);
 
-  const navIndex = useMemo(() => {
-    if (!siblings) return { idx: -1, prev: null, next: null };
+  // Fetch the submission so we can show the teacher's verdict for the
+  // current problem and (in retry mode) walk through the incorrect ones.
+  useEffect(() => {
+    if (!fromSubmission) {
+      setSubmission(null);
+      return;
+    }
+    let cancelled = false;
+    api.study.getSubmission(fromSubmission)
+      .then((s) => !cancelled && setSubmission(s))
+      .catch(() => !cancelled && setSubmission(null));
+    return () => { cancelled = true; };
+  }, [fromSubmission]);
+
+  const verdictForCurrent = useMemo(() => {
+    if (!submission) return null;
+    const item = submission.items.find((it) => it.problem.id === id);
+    const r = item?.attempt.reviews[submission.reviewer_id];
+    if (!r) return null;
+    return { verdict: r.verdict, teacherLabel: submission.reviewer_name };
+  }, [submission, id]);
+
+  // Walk the submission's incorrect items in retry mode; otherwise use
+  // the collection's siblings list. `nav.prev`/`.next` carry both id and
+  // source so the next URL works across collections.
+  const navIndex = useMemo<{
+    idx: number;
+    prev: { id: string; source: string } | null;
+    next: { id: string; source: string } | null;
+    total: number;
+  }>(() => {
+    if (retry === 'incorrect' && submission) {
+      const list = submission.items
+        .filter((it) => it.attempt.reviews[submission.reviewer_id]?.verdict === 'incorrect')
+        .map((it) => ({ id: it.problem.id, source: it.problem.source }));
+      const idx = list.findIndex((t) => t.id === id);
+      return {
+        idx,
+        prev: idx > 0 ? list[idx - 1] : null,
+        next: idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null,
+        total: list.length,
+      };
+    }
+    if (!siblings) return { idx: -1, prev: null, next: null, total: 0 };
     const idx = siblings.findIndex((p) => p.id === id);
     return {
       idx,
-      prev: idx > 0 ? siblings[idx - 1] : null,
-      next: idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null,
+      prev: idx > 0 ? { id: siblings[idx - 1].id, source } : null,
+      next: idx >= 0 && idx < siblings.length - 1 ? { id: siblings[idx + 1].id, source } : null,
+      total: siblings.length,
     };
-  }, [siblings, id]);
+  }, [retry, submission, siblings, id, source]);
 
   const stones: Stone[] = useMemo(() => {
     return (problem?.stones ?? []).map((s) => ({
@@ -96,13 +148,16 @@ export function SolveView() {
     return a;
   };
 
-  const navSuffix = fromSubmission
-    ? `?from_submission=${encodeURIComponent(fromSubmission)}`
-    : '';
+  const navSuffix = useMemo(() => {
+    const parts: string[] = [];
+    if (fromSubmission) parts.push(`from_submission=${encodeURIComponent(fromSubmission)}`);
+    if (retry) parts.push(`retry=${encodeURIComponent(retry)}`);
+    return parts.length ? `?${parts.join('&')}` : '';
+  }, [fromSubmission, retry]);
 
   const goToNext = () => {
     if (navIndex.next) {
-      navigate(`/collections/${encodeURIComponent(source)}/solve/${navIndex.next.id}${navSuffix}`);
+      navigate(`/collections/${encodeURIComponent(navIndex.next.source)}/solve/${navIndex.next.id}${navSuffix}`);
     }
   };
 
@@ -134,7 +189,7 @@ export function SolveView() {
 
   const goPrev = () => {
     if (navIndex.prev) {
-      navigate(`/collections/${encodeURIComponent(source)}/solve/${navIndex.prev.id}${navSuffix}`);
+      navigate(`/collections/${encodeURIComponent(navIndex.prev.source)}/solve/${navIndex.prev.id}${navSuffix}`);
     }
   };
 
@@ -178,15 +233,25 @@ export function SolveView() {
           )}
           <h1>
             Problem {problem.source_board_idx + 1}
-            {siblings && navIndex.idx >= 0 && (
+            {navIndex.idx >= 0 && navIndex.total > 0 && (
               <span className="solve-counter">
-                {' '}({navIndex.idx + 1} / {siblings.length})
+                {' '}({navIndex.idx + 1} / {navIndex.total})
               </span>
             )}
           </h1>
           <div className="solve-meta">
             {problem.black_to_play ? 'Black to play' : 'White to play'}
           </div>
+          {verdictForCurrent && (
+            <div className={`solve-verdict-banner v-${verdictForCurrent.verdict}`}>
+              <span className="solve-verdict-mark">
+                {verdictForCurrent.verdict === 'correct' ? '✓' : '✗'}
+              </span>
+              <span>
+                Marked {verdictForCurrent.verdict} by {verdictForCurrent.teacherLabel}
+              </span>
+            </div>
+          )}
         </div>
       </header>
 

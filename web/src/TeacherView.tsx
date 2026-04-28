@@ -392,10 +392,13 @@ function StudentReview({ student }: { student: LinkedUser }) {
                 onClick={() => { setSelectedBatch(b.sent_at); setSelectedIdx(null); }}
               >
                 <div className="teacher-batch-when">
-                  {b.sent_at
-                    ? `Sent ${formatTimestamp(b.sent_at)} by ${student.display_name}`
-                    : `Sent by ${student.display_name}`}
+                  New submission from {student.display_name}
                 </div>
+                {b.sent_at && (
+                  <div className="teacher-batch-sent">
+                    sent {formatTimestamp(b.sent_at)}
+                  </div>
+                )}
                 <div className="teacher-batch-counts">
                   {b.items.length} problem{b.items.length === 1 ? '' : 's'}
                   {draftCount > 0 && (

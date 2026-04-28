@@ -23,6 +23,32 @@
   font-size: 1rem;
 }
 
+.solve-verdict-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.solve-verdict-banner.v-correct {
+  background: var(--success-bg);
+  color: var(--success-strong);
+}
+
+.solve-verdict-banner.v-incorrect {
+  background: var(--error-bg);
+  color: var(--error-strong);
+}
+
+.solve-verdict-mark {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 .solve-actions .solve-save-continue {
   background: var(--indigo);
   color: var(--bg);
