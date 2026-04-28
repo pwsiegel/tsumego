@@ -94,6 +94,7 @@ class TJunctionResult:
     junctions: list[Junction]
     sides: dict[str, SideTally]
     edges: dict[str, bool]
+    skel: np.ndarray  # 1-px boolean skeleton, exposed for stub detection
 
 
 def detect_junctions(crop_bgr: np.ndarray) -> TJunctionResult:
@@ -127,7 +128,7 @@ def detect_junctions(crop_bgr: np.ndarray) -> TJunctionResult:
 
     H, W = skel.shape
     sides, edges = tally_edges(junctions, W, H)
-    return TJunctionResult(junctions=junctions, sides=sides, edges=edges)
+    return TJunctionResult(junctions=junctions, sides=sides, edges=edges, skel=skel)
 
 
 SIDE_DIR: dict[str, Direction] = {

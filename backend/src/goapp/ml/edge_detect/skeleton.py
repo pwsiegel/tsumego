@@ -18,23 +18,20 @@ Pipeline per board crop:
      classified as edge-touching on that side.
   7. Sanity: reject any fired edge if a stone center sits more than
      ~1 stone radius past the asserted edge position in the outward
-     direction, OR if a grid-like pattern (≥2 parallel lines at the
-     board's pitch) extends past the rim — that's a windowed view, not
-     a real edge.
+     direction, OR if ≥3 grid junctions sit past the asserted edge —
+     that's a windowed view (the previous problem's diagram, or more
+     of the same board), not a real edge.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-import cv2
 import numpy as np
 
 from ..stone_detect.clean import paint_out_stones, paint_radius
-from ..stone_detect.edge_test import PITCH_FROM_R, StoneEdgeClass, classify_stone_edges
+from ..stone_detect.edge_test import StoneEdgeClass, classify_stone_edges
 from .tjunction import (
-    ADAPTIVE_BLOCK_SIZE,
-    ADAPTIVE_C,
     EDGE_COLINEAR_FRAC,
     Junction,
     SideTally,
@@ -51,17 +48,18 @@ from .tjunction import (
 MIN_STONE_VOTES = 2
 
 # A candidate edge fires only if the outward region is NOT a windowed
-# view. The signal that we're at the real edge of the board (not a
-# windowed view) is that there's no grid going out past the rim — i.e.,
-# nothing is on the other side of it. A windowed view, by contrast,
-# shows multiple parallel grid lines (or tick marks at pitch spacing)
-# continuing past the visible last row. A single isolated line — a
-# publisher's page-frame, a binding shadow, a caption rule — does NOT
-# count as continuation; only a periodic grid-like pattern at the
-# board's pitch does.
-OUTWARD_DEPTH_PITCH = 2.5         # scan this many pitches past the rim
-OUTWARD_LINE_FRAC = 0.5           # peak: ink ≥ this fraction of band depth
-OUTWARD_PITCH_TOL_FRAC = 0.35     # gap-to-pitch tolerance
+# view. The signal we use: vertical/horizontal STUBS extending out of
+# the rim — short line segments on the 1-px skeleton, sticking up (or
+# sideways) from each grid intersection. A real edge has no stubs past
+# it; a windowed view has stubs at every grid column past it (because
+# the board's grid lines continue through the asserted "edge"). We
+# count stubs on the skeleton rather than ink in the binarization
+# because the skeleton is robust against faint photocopies, dirty
+# scans, and answer-stone blobs that defeat raw thresholding.
+OUTWARD_STUBS_THRESH = 3            # ≥ this many stubs past the rim → not a real edge
+OUTWARD_STUB_MIN_LEN = 10           # a stub must run this many px into the band to count;
+                                    # short leakage from the grid CC bounds is ignored
+OUTWARD_STUB_MAX_DEPTH = 40         # scan this far past the rim, in pixels
 
 _SIDE_TO_DIR = {"left": "W", "right": "E", "top": "N", "bottom": "S"}
 
@@ -87,7 +85,9 @@ def decide_edges(
     grid_bbox = main_grid_bbox(crop_bgr)
 
     cleaned = paint_out_stones(crop_bgr, stones)
-    raw_junctions = detect_junctions(cleaned).junctions
+    tj = detect_junctions(cleaned)
+    raw_junctions = tj.junctions
+    skel = tj.skel
     stone_edges = classify_stone_edges(crop_bgr, stones, grid_bbox=grid_bbox)
 
     painted = [(s["x"], s["y"], paint_radius(s["r"])) for s in stones]
@@ -109,12 +109,7 @@ def decide_edges(
     else:
         median_r = 0.0
     margin = max(median_r, 1.0)
-    pitch = median_r * PITCH_FROM_R if median_r > 0 else 0.0
 
-    # Pre-compute the binary used for outward-content scanning. Same
-    # adaptive-threshold params as the skeletonizer, so what we count
-    # as "ink past the edge" matches what produced the junctions.
-    bi = _binarize(crop_bgr)
     edge_positions: dict[str, float | None] = {
         "left": None, "right": None, "top": None, "bottom": None,
     }
@@ -128,11 +123,7 @@ def decide_edges(
         if _stone_beyond(d, ep, stones, margin):
             edges[side] = False
             continue
-        # Windowed-view detection: a real edge has nothing past it; a
-        # windowed view shows perpendicular grid lines (or tick marks)
-        # extending past the visible last row at pitch spacing. Only
-        # the latter rejects the edge.
-        if _outward_has_grid(bi, side, ep, grid_bbox, margin, pitch):
+        if _outward_has_stubs(skel, side, ep):
             edges[side] = False
             continue
         edge_positions[side] = float(ep)
@@ -203,100 +194,56 @@ def _largest_cluster(sorted_pos: list[float], tol: float) -> list[float]:
     return sorted_pos[best[0]:best[1] + 1]
 
 
-def _binarize(crop_bgr: np.ndarray) -> np.ndarray:
-    gray = (
-        cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-        if crop_bgr.ndim == 3 else crop_bgr
-    )
-    return cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
-        blockSize=ADAPTIVE_BLOCK_SIZE, C=ADAPTIVE_C,
-    )
+_OUTWARD_SKIP = 3
 
 
-def _outward_has_grid(
-    bi: np.ndarray,
+def _outward_has_stubs(
+    skel: np.ndarray,
     side: str,
     edge_pos: float,
-    grid_bbox: tuple[int, int, int, int] | None,
-    margin: float,
-    pitch: float,
 ) -> bool:
-    """True iff a grid-like pattern (≥2 parallel lines spaced at the
-    board's pitch) extends past `edge_pos` outward. This is the only
-    accepted "board continues past this view" signal: a single isolated
-    line — page-frame rule, binding shadow, caption rule — does NOT
-    qualify, and the edge stays fired.
-
-    Projects the outward band onto the axis PERPENDICULAR to the rim:
-    for a horizontal rim (top/bottom), continuation = vertical lines
-    extending past it, which appear as periodic peaks along x.
-    """
-    if pitch <= 0:
-        return False
-    H, W = bi.shape
-    if grid_bbox is None:
-        gx0, gy0, gx1, gy1 = 0, 0, W, H
-    else:
-        gx0, gy0, gx1, gy1 = grid_bbox
-    skip = int(max(margin, 8))
-    depth = int(max(OUTWARD_DEPTH_PITCH * pitch, 30))
+    """True iff ≥OUTWARD_STUBS_THRESH stubs extend past `edge_pos` on
+    the 1-px skeleton. For top/bottom the stubs are vertical (columns
+    with skeleton ink); for left/right they're horizontal (rows). A
+    column/row counts as a stub if it has ≥OUTWARD_STUB_MIN_LEN skeleton
+    pixels in the band past the rim."""
+    H, W = skel.shape
+    skip = _OUTWARD_SKIP
+    depth = OUTWARD_STUB_MAX_DEPTH
     if side == "top":
         y_hi = max(0, int(edge_pos) - skip)
         y_lo = max(0, y_hi - depth)
-        band = bi[y_lo:y_hi, gx0:gx1]
-        proj = (band > 0).sum(axis=0)
-        actual_depth = band.shape[0]
+        band = skel[y_lo:y_hi, :]
+        proj = band.sum(axis=0)
     elif side == "bottom":
         y_lo = min(H, int(edge_pos) + skip)
         y_hi = min(H, y_lo + depth)
-        band = bi[y_lo:y_hi, gx0:gx1]
-        proj = (band > 0).sum(axis=0)
-        actual_depth = band.shape[0]
+        band = skel[y_lo:y_hi, :]
+        proj = band.sum(axis=0)
     elif side == "left":
         x_hi = max(0, int(edge_pos) - skip)
         x_lo = max(0, x_hi - depth)
-        band = bi[gy0:gy1, x_lo:x_hi]
-        proj = (band > 0).sum(axis=1)
-        actual_depth = band.shape[1]
+        band = skel[:, x_lo:x_hi]
+        proj = band.sum(axis=1)
     else:  # right
         x_lo = min(W, int(edge_pos) + skip)
         x_hi = min(W, x_lo + depth)
-        band = bi[gy0:gy1, x_lo:x_hi]
-        proj = (band > 0).sum(axis=1)
-        actual_depth = band.shape[1]
-    if proj.size == 0 or actual_depth < 2 * pitch:
-        # Not enough room past the rim to ever fit two parallel lines.
+        band = skel[:, x_lo:x_hi]
+        proj = band.sum(axis=1)
+    if proj.size == 0:
         return False
-    peak_thresh = max(3, int(OUTWARD_LINE_FRAC * actual_depth))
-    occ = (proj >= peak_thresh).tolist()
-    lines = _contiguous_clusters(occ)
-    if len(lines) < 2:
-        return False
-    centers = [(s + e) / 2.0 for s, e in lines]
-    tol = OUTWARD_PITCH_TOL_FRAC * pitch
-    return any(
-        abs((centers[i + 1] - centers[i]) - pitch) <= tol
-        for i in range(len(centers) - 1)
-    )
-
-
-def _contiguous_clusters(mask: list[bool]) -> list[tuple[int, int]]:
-    """Return inclusive (start, end) ranges for each run of True."""
-    out: list[tuple[int, int]] = []
-    n = len(mask)
-    i = 0
-    while i < n:
-        if mask[i]:
-            j = i
-            while j < n and mask[j]:
-                j += 1
-            out.append((i, j - 1))
-            i = j
-        else:
-            i += 1
-    return out
+    # Each "stub" is a contiguous run of columns/rows above the length
+    # threshold — a single thick line shouldn't count more than once.
+    occ = proj >= OUTWARD_STUB_MIN_LEN
+    stubs = 0
+    in_run = False
+    for v in occ:
+        if v and not in_run:
+            stubs += 1
+            in_run = True
+        elif not v:
+            in_run = False
+    return stubs >= OUTWARD_STUBS_THRESH
 
 
 def _stone_beyond(
