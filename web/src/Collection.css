@@ -34,6 +34,74 @@
   margin: 0.15rem 0;
 }
 
+.collection-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.title-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #888;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.title-edit-btn:hover {
+  color: #1a66c8;
+  background: #eef4fc;
+  border-color: #c7daf2;
+}
+
+.title-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.15rem 0;
+}
+
+.title-edit-input {
+  font-size: 1.2rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  min-width: 22rem;
+  font-family: inherit;
+}
+
+.title-edit button {
+  padding: 0.45rem 0.85rem;
+  border: 1px solid #1a66c8;
+  background: #1a66c8;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.title-edit button:disabled {
+  background: #c8c8c8;
+  border-color: #c8c8c8;
+  cursor: not-allowed;
+}
+
+.title-edit .title-edit-cancel {
+  background: #fff;
+  color: #444;
+  border-color: #c8c8c8;
+}
+
+.title-edit .title-edit-cancel:hover:not(:disabled) {
+  background: #f4f4f4;
+}
+
 .collection-stats {
   color: #666;
   font-size: 0.9rem;

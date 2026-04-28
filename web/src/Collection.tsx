@@ -12,6 +12,9 @@ export function Collection() {
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(source);
+  const [savingName, setSavingName] = useState(false);
 
   const refetch = async () => {
     try {
@@ -28,6 +31,35 @@ export function Collection() {
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
+
+  const startRename = () => {
+    setDraftName(source);
+    setRenaming(true);
+  };
+  const cancelRename = () => {
+    setRenaming(false);
+    setDraftName(source);
+  };
+  const saveRename = async () => {
+    const next = draftName.trim();
+    if (!next || next === source) {
+      cancelRename();
+      return;
+    }
+    setSavingName(true);
+    setError(null);
+    try {
+      await api.tsumego.renameCollection(source, next);
+      setRenaming(false);
+      // The URL is keyed by source — navigate to the new one. `replace`
+      // keeps the back button useful.
+      navigate(`/collections/${encodeURIComponent(next)}`, { replace: true });
+    } catch (e) {
+      setError(`Rename failed: ${e}`);
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const enterSelect = () => {
     setSelecting(true);
@@ -79,7 +111,58 @@ export function Collection() {
       <header className="collection-header">
         <div>
           <Link to="/" className="back-link">← home</Link>
-          <h1>{source}</h1>
+          {renaming ? (
+            <form
+              className="title-edit"
+              onSubmit={(e) => { e.preventDefault(); saveRename(); }}
+            >
+              <input
+                type="text"
+                className="title-edit-input"
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                disabled={savingName}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') cancelRename();
+                }}
+              />
+              <button
+                type="submit"
+                disabled={savingName || !draftName.trim() || draftName.trim() === source}
+              >
+                {savingName ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelRename}
+                disabled={savingName}
+                className="title-edit-cancel"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <h1 className="collection-title">
+              {source}
+              <button
+                type="button"
+                className="title-edit-btn"
+                onClick={startRename}
+                aria-label="Rename collection"
+                title="Rename collection"
+              >
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                </svg>
+              </button>
+            </h1>
+          )}
           {problems && (
             <div className="collection-stats">
               {problems.length} total &nbsp;·&nbsp;
@@ -151,6 +234,7 @@ export function Collection() {
         <ul className="problem-grid">
           {problems.map((p) => {
             const selected = selectedIds.has(p.id);
+            const tileTarget = `/collections/${encodeURIComponent(source)}/problem/${p.id}`;
             const tileBody = (
               <>
                 <div className="tile-thumb">
@@ -190,7 +274,7 @@ export function Collection() {
                     {tileBody}
                   </button>
                 ) : (
-                  <Link to={`/collections/${encodeURIComponent(source)}/problem/${p.id}`}>
+                  <Link to={tileTarget}>
                     {tileBody}
                   </Link>
                 )}

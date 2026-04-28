@@ -14,6 +14,7 @@ from ...tsumego import (
     list_collections,
     list_problems,
     load_problem,
+    rename_collection,
     save_problem,
     update_problem,
 )
@@ -22,6 +23,8 @@ from .schemas import (
     CollectionsResponse,
     DeleteCollectionResponse,
     ProblemsResponse,
+    RenameCollectionRequest,
+    RenameCollectionResponse,
     SaveTsumegoRequest,
     SaveTsumegoResponse,
     TsumegoProblem,
@@ -72,6 +75,20 @@ def tsumego_collections_endpoint(user_id: str = UserId) -> CollectionsResponse:
     items = list_collections(user_id)
     return CollectionsResponse(
         collections=[Collection(**c) for c in items]
+    )
+
+
+@router.post("/api/tsumego/collections/{source:path}/rename",
+             response_model=RenameCollectionResponse)
+def tsumego_collection_rename_endpoint(
+    source: str, req: RenameCollectionRequest, user_id: str = UserId,
+) -> RenameCollectionResponse:
+    try:
+        renamed = rename_collection(user_id, source, req.new_source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return RenameCollectionResponse(
+        old_source=source, new_source=req.new_source.strip(), renamed=renamed,
     )
 
 

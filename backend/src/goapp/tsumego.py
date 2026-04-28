@@ -288,6 +288,40 @@ def delete_problem(user_id: str, problem_id: str) -> bool:
     return True
 
 
+def rename_collection(user_id: str, old_source: str, new_source: str) -> int:
+    """Rewrite the `source` field on every problem belonging to
+    `old_source`. Returns the number of problems updated.
+
+    Refuses if any problem already exists under `new_source` (a merge
+    would silently combine collections, which is a footgun). Raises
+    `ValueError` for empty / identical names or on collision; the API
+    layer maps that to a 4xx response.
+    """
+    new_source = new_source.strip()
+    if not new_source:
+        raise ValueError("new name is empty")
+    if new_source == old_source:
+        return 0
+    udir = tsumego_dir(user_id)
+    if not udir.exists():
+        return 0
+    targets: list[tuple[Path, dict]] = []
+    for mp in udir.glob("*.json"):
+        try:
+            d = json.loads(mp.read_text())
+        except json.JSONDecodeError:
+            continue
+        src = d.get("source")
+        if src == new_source:
+            raise ValueError(f"a collection named {new_source!r} already exists")
+        if src == old_source:
+            targets.append((mp, d))
+    for mp, d in targets:
+        d["source"] = new_source
+        mp.write_text(json.dumps(d))
+    return len(targets)
+
+
 def delete_collection(user_id: str, source: str) -> int:
     """Delete every SGF + metadata pair whose metadata source matches.
 

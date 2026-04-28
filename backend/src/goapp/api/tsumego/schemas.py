@@ -41,6 +41,16 @@ class DeleteCollectionResponse(BaseModel):
     removed: int
 
 
+class RenameCollectionRequest(BaseModel):
+    new_source: str
+
+
+class RenameCollectionResponse(BaseModel):
+    old_source: str
+    new_source: str
+    renamed: int
+
+
 class TsumegoProblem(BaseModel):
     id: str
     source: str
