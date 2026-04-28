@@ -58,7 +58,7 @@ export function TeacherView() {
     );
   }
 
-  return <StudentReview student={student} hasOthers={students.length > 1} />;
+  return <StudentReview student={student} />;
 }
 
 type PendingBatch = {
@@ -190,12 +190,7 @@ function TeacherLanding({ students }: { students: LinkedUser[] }) {
   );
 }
 
-function StudentReview({
-  student, hasOthers,
-}: {
-  student: LinkedUser;
-  hasOthers: boolean;
-}) {
+function StudentReview({ student }: { student: LinkedUser }) {
   const studentUid = student.user_id;
   const [items, setItems] = useState<TeacherAttemptWithProblem[] | null>(null);
   const [history, setHistory] = useState<TeacherAttemptWithProblem[] | null>(null);
@@ -268,12 +263,8 @@ function StudentReview({
     }
   };
 
-  const backLink = hasOthers ? (
-    <Link to="/teacher" className="back-link">← all students</Link>
-  ) : (
-    <Link to="/" state={{ from: 'teacher' }} className="back-link">
-      ← student view
-    </Link>
+  const backLink = (
+    <Link to="/teacher" className="back-link">← teacher view</Link>
   );
 
   if (error && !items) {
@@ -304,7 +295,7 @@ function StudentReview({
         <header className="teacher-header">
           <div>
             {backLink}
-            <h1>Teacher review</h1>
+            <h1>Review submissions</h1>
             <div className="teacher-meta">
               For <strong>{student.display_name}</strong>
             </div>
@@ -366,7 +357,7 @@ function StudentReview({
       <header className="teacher-header">
         <div>
           {backLink}
-          <h1>Teacher review</h1>
+          <h1>Review submissions</h1>
           <div className="teacher-meta">
             For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
             {batches.length} submission{batches.length === 1 ? '' : 's'} pending
