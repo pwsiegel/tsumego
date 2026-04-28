@@ -70,10 +70,10 @@ export-models: ## Export trained .pt weights to ONNX for the lean serving image
 # Docker
 # ---------------------------------------------------------------------------
 
-docker-up: ## Build and start both services via docker compose
+docker-up: ## Build + run the single-image container (frontend + API on :8080)
 	docker compose up --build
 
-docker-down: ## Stop docker compose services
+docker-down: ## Stop the docker compose service
 	docker compose down
 
 # ---------------------------------------------------------------------------

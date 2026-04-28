@@ -1,16 +1,11 @@
 services:
   api:
-    build: ./backend
+    build: .
+    image: tsumego:local
     ports:
-      - "8001:8001"
+      - "8080:8080"
     volumes:
-      - ./backend/data/models:/app/data/models:ro
-    restart: unless-stopped
-
-  web:
-    build: ./web
-    ports:
-      - "8080:80"
-    depends_on:
-      - api
+      # Share state with the host so collections/attempts persist across runs
+      # and the same files are visible to local dev (`make api`).
+      - ${HOME}/data/go-app:/data
     restart: unless-stopped
