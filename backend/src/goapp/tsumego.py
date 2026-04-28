@@ -13,9 +13,32 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .paths import tsumego_dir
+
+
+def _read_all_metadata(udir: Path) -> list[dict]:
+    """Read every *.json in udir in parallel; skip malformed entries.
+
+    On Cloud Run the data dir is FUSE-mounted from GCS — each open() is a
+    network round trip, so a serial scan over hundreds of problems
+    blocks for tens of seconds. The work is pure I/O wait, so threading
+    is essentially free even on a 1-vCPU instance.
+    """
+    paths = list(udir.glob("*.json"))
+    if not paths:
+        return []
+
+    def _read(p: Path) -> dict | None:
+        try:
+            return json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        return [d for d in ex.map(_read, paths) if d is not None]
 
 
 def _sgf_coord(col: int, row: int) -> str:
@@ -175,15 +198,7 @@ def list_problems(user_id: str, source: str) -> list[dict]:
     udir = tsumego_dir(user_id)
     if not udir.exists():
         return []
-    out: list[dict] = []
-    for mp in udir.glob("*.json"):
-        try:
-            d = json.loads(mp.read_text())
-        except json.JSONDecodeError:
-            continue
-        if d.get("source") != source:
-            continue
-        out.append(d)
+    out = [d for d in _read_all_metadata(udir) if d.get("source") == source]
     out.sort(key=lambda d: d.get("source_board_idx", 0))
     return out
 
@@ -239,11 +254,7 @@ def list_collections(user_id: str) -> list[dict]:
     if not udir.exists():
         return []
     groups: dict[str, dict] = {}
-    for mp in udir.glob("*.json"):
-        try:
-            d = json.loads(mp.read_text())
-        except json.JSONDecodeError:
-            continue
+    for d in _read_all_metadata(udir):
         src = d.get("source")
         if not src:
             continue
