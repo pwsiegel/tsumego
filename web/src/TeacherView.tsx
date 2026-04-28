@@ -252,7 +252,7 @@ function StudentReview({ student }: { student: LinkedUser }) {
         for (const [aid] of toSend) next.delete(aid);
         return next;
       });
-      setFlash(`Submitted ${toSend.length} verdict${toSend.length === 1 ? '' : 's'}.`);
+      setFlash(`Submitted ${toSend.length} review${toSend.length === 1 ? '' : 's'}.`);
       setSelectedIdx(null);
       setSelectedBatch(null);
       await refresh();
@@ -263,34 +263,6 @@ function StudentReview({ student }: { student: LinkedUser }) {
     }
   };
 
-  // Persist a single verdict and drop the attempt from the queue
-  // optimistically. The detail view advances naturally because the next
-  // render's batch is one shorter — `idx` now points at what was next.
-  const saveOne = async (aid: string, v: Verdict) => {
-    await api.teacher.review(studentUid, aid, v);
-    setItems((prev) => prev?.filter((it) => it.attempt.id !== aid) ?? null);
-    setDrafts((prev) => {
-      const next = new Map(prev);
-      next.delete(aid);
-      return next;
-    });
-    api.teacher.reviewed(studentUid).then(setHistory).catch(() => {});
-  };
-
-  // After items shrinks (single save), exit detail/grid if the current
-  // selection no longer has an item to render.
-  useEffect(() => {
-    if (items === null || selectedBatch === null) return;
-    const b = groupBatches(items).find((x) => x.sent_at === selectedBatch);
-    if (!b || b.items.length === 0) {
-      setSelectedBatch(null);
-      setSelectedIdx(null);
-      return;
-    }
-    if (selectedIdx !== null && selectedIdx >= b.items.length) {
-      setSelectedIdx(null);
-    }
-  }, [items, selectedBatch, selectedIdx]);
 
   const backLink = (
     <Link to="/teacher" className="back-link">← teacher view</Link>
@@ -354,7 +326,6 @@ function StudentReview({ student }: { student: LinkedUser }) {
         setIdx={setSelectedIdx}
         drafts={drafts}
         setVerdict={setVerdict}
-        saveOne={saveOne}
       />
     );
   }
@@ -531,7 +502,7 @@ function SubmitBar({
     <div className="teacher-submit-bar">
       <span className="teacher-submit-count">
         {draftCount === 0
-          ? `No verdicts drafted yet (${total} pending in this submission).`
+          ? `${total} pending in this submission.`
           : `${draftCount} of ${total} drafted.`}
       </span>
       <button
@@ -624,7 +595,7 @@ function GridTile({
 }
 
 function DetailView({
-  student, batch, idx, setIdx, drafts, setVerdict, saveOne,
+  student, batch, idx, setIdx, drafts, setVerdict,
 }: {
   student: LinkedUser;
   batch: { sent_at: string; items: TeacherAttemptWithProblem[] };
@@ -632,14 +603,10 @@ function DetailView({
   setIdx: (i: number | null) => void;
   drafts: Map<string, Verdict>;
   setVerdict: (aid: string, v: Verdict | null) => void;
-  saveOne: (aid: string, v: Verdict) => Promise<void>;
 }) {
   const current = batch.items[idx];
   const verdict = drafts.get(current.attempt.id) ?? null;
   const total = batch.items.length;
-
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const stones: Stone[] = useMemo(() => {
     return (current.problem.stones ?? []).map((s) => ({
@@ -665,19 +632,13 @@ function DetailView({
   const onPick = (v: Verdict) => {
     setVerdict(current.attempt.id, verdict === v ? null : v);
   };
-  const saveAndContinue = async () => {
+  // Verdicts are kept as drafts; the teacher submits the whole batch
+  // from the grid view. "Save & continue" advances; on the last problem
+  // it returns to the grid so the submit bar is visible.
+  const saveAndContinue = () => {
     if (!verdict) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await saveOne(current.attempt.id, verdict);
-      // Items shrink by one; parent re-renders with the next item now at
-      // this idx, or auto-exits if idx is out of range.
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSubmitting(false);
-    }
+    if (idx < total - 1) setIdx(idx + 1);
+    else setIdx(null);
   };
 
   return (
@@ -696,20 +657,20 @@ function DetailView({
           </div>
         </div>
         <div className="teacher-nav">
-          <button onClick={goPrev} disabled={idx === 0 || submitting}>
+          <button onClick={goPrev} disabled={idx === 0}>
             ‹ Prev
           </button>
           <button
             onClick={saveAndContinue}
-            disabled={!verdict || submitting}
+            disabled={!verdict}
             className="teacher-save-continue"
-            aria-label="Save verdict and continue to next problem"
+            aria-label="Save review and continue to next problem"
           >
-            {submitting ? 'Saving…' : 'Save & continue ›'}
+            Save & continue ›
           </button>
           <button
             onClick={goNext}
-            disabled={idx >= total - 1 || submitting}
+            disabled={idx >= total - 1}
             aria-label="Skip to next problem without saving"
           >
             Skip ›
@@ -759,14 +720,12 @@ function DetailView({
         <button
           className={`verdict correct${verdict === 'correct' ? ' selected' : ''}`}
           onClick={() => onPick('correct')}
-          disabled={submitting}
         >
           ✓ Correct
         </button>
         <button
           className={`verdict incorrect${verdict === 'incorrect' ? ' selected' : ''}`}
           onClick={() => onPick('incorrect')}
-          disabled={submitting}
         >
           ✗ Incorrect
         </button>
@@ -781,8 +740,6 @@ function DetailView({
           />
         </details>
       )}
-
-      {error && <div className="teacher-error">{error}</div>}
     </div>
   );
 }
