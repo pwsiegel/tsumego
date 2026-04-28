@@ -28,7 +28,7 @@ export function Review() {
     })();
   }, [source, statusFilter]);
 
-  const backToCollection = () => navigate(`/collections/${encodeURIComponent(source)}`);
+  const backToCollection = () => navigate(`/collections/${encodeURIComponent(source)}/edit`);
 
   if (error) {
     return (

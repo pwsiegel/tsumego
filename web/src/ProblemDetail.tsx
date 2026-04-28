@@ -18,7 +18,7 @@ export function ProblemDetail() {
       .catch((e) => setError(String(e)));
   }, [id]);
 
-  const backToCollection = () => navigate(`/collections/${encodeURIComponent(source)}`);
+  const backToCollection = () => navigate(`/collections/${encodeURIComponent(source)}/edit`);
 
   if (error) {
     return (

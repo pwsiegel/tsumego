@@ -44,7 +44,7 @@ function App() {
         <Route path="/upload" element={<Upload />} />
         <Route path="/reviewed" element={<Reviewed />} />
         <Route path="/submissions/:sent_at" element={<Submission />} />
-        <Route path="/collections/:source" element={<Collection />} />
+        <Route path="/collections/:source/edit" element={<Collection />} />
         <Route path="/collections/:source/review" element={<Review />} />
         <Route path="/collections/:source/problem/:id" element={<ProblemDetail />} />
         <Route path="/collections/:source/solve" element={<SolveEntry />} />

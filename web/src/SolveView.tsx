@@ -170,7 +170,10 @@ export function SolveView() {
               ← back to submission
             </Link>
           ) : (
-            <Link to="/" className="back-link">
+            <Link
+              to={`/collections/${encodeURIComponent(source)}/solve`}
+              className="back-link"
+            >
               ← {source}
             </Link>
           )}
@@ -357,10 +360,10 @@ function boundingViewport(points: { x: number; y: number }[]) {
     if (p.y > ymax) ymax = p.y;
   }
   return {
-    colMin: Math.max(0, xmin - 1),
-    colMax: Math.min(18, xmax + 1),
-    rowMin: Math.max(0, ymin - 1),
-    rowMax: Math.min(18, ymax + 1),
+    colMin: Math.max(0, xmin - 3),
+    colMax: Math.min(18, xmax + 3),
+    rowMin: Math.max(0, ymin - 3),
+    rowMax: Math.min(18, ymax + 3),
   };
 }
 

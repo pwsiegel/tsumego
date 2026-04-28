@@ -368,7 +368,7 @@ export function Home() {
                   </div>
                 </Link>
                 <Link
-                  to={`/collections/${encodeURIComponent(c.source)}`}
+                  to={`/collections/${encodeURIComponent(c.source)}/edit`}
                   className="collection-edit"
                   aria-label={`Edit collection ${c.source}`}
                   title="Open the QA / edit grid"
@@ -635,7 +635,7 @@ function JobCard({
       <div className="job-card-actions">
         {isDone && (
           <Link
-            to={`/collections/${encodeURIComponent(job.source)}`}
+            to={`/collections/${encodeURIComponent(job.source)}/edit`}
             className="job-link"
           >
             Open

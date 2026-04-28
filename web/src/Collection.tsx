@@ -53,7 +53,7 @@ export function Collection() {
       setRenaming(false);
       // The URL is keyed by source — navigate to the new one. `replace`
       // keeps the back button useful.
-      navigate(`/collections/${encodeURIComponent(next)}`, { replace: true });
+      navigate(`/collections/${encodeURIComponent(next)}/edit`, { replace: true });
     } catch (e) {
       setError(`Rename failed: ${e}`);
     } finally {
