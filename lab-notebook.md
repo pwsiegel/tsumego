@@ -782,6 +782,38 @@ filters to acked-only so graded history doesn't duplicate the in-flight
 panel. Tradeoff: students who want a second opinion must resubmit
 explicitly — accepted as a feature.
 
+## 2026-04-27 — background PDF ingest with restart-on-stall
+
+Replaced the foreground streaming-NDJSON ingest (Upload page held the
+tab open, lost on tab close, blocked on slow Cloud Run inference) with
+per-job state files. New layout:
+
+- `backend/src/goapp/ingest_jobs.py` — owns per-`(user, job_id)` state.
+  Each job dir holds `state.json` (phase + counters) and `source.pdf`
+  (kept until success so we can resume). Phases: `rendering` →
+  `detecting` → `done` / `error`. `list_jobs` annotates a `stalled` flag
+  computed at read time when `updated_at` is older than 90 s on a
+  non-terminal job.
+- Routes: `POST /api/pdf/ingest` (multipart) and `POST
+  /api/pdf/ingest-from-upload` (signed-URL) now stage the PDF, return a
+  `job_id`, and dispatch `_run_job` via `loop.run_in_executor` so the
+  request returns immediately. New endpoints: `GET /jobs`,
+  `POST /jobs/{id}/restart`, `DELETE /jobs/{id}`.
+- Restart re-uses the staged PDF and creates a fresh `job_id`; the
+  existing `problem_exists` short-circuit makes the resumed run skip
+  already-saved boards, so retries are idempotent without extra
+  bookkeeping.
+- Frontend: Upload kicks off the job and redirects home. Home polls
+  `/api/pdf/jobs` every 2 s while any job is non-terminal, with cards
+  that show a progress bar in `rendering`, an indeterminate bar in
+  `detecting`, and Restart/Dismiss/Open actions on terminal/stalled
+  jobs. `IngestEvent` + `streamNdjson` removed from `api.ts`.
+
+Why now: previous Cloud Run runs on real books were minutes long and
+the user wanted to leave the tab. Updates the deferred-ingest entry
+below — done lightweight (in-process executor, JSON state files), no
+Cloud Tasks dependency.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have

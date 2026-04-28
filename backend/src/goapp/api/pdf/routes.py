@@ -1,13 +1,15 @@
 """PDF upload, board detection, and discretization endpoints."""
 
+import json as _json
 import logging
+import threading
 import uuid
 from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
-from ... import gcs
+from ... import gcs, ingest_jobs
 from ...auth import user_id_from_request
 from ...ml.pipeline import (
     _board_crop,
@@ -33,6 +35,9 @@ from .schemas import (
     BoardTJunctionEdges,
     FusedLatticeOut,
     IngestFromUploadRequest,
+    IngestJobOut,
+    IngestJobsResponse,
+    IngestJobStartResponse,
     JunctionOut,
     SegmentOut,
     SideTallyOut,
@@ -478,6 +483,12 @@ def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Itera
                 "total_saved": total_saved,
             }) + "\n"
             source_board_idx += 1
+        # Emitted regardless of whether the page had any boards, so the
+        # frontend can show determinate progress through the detection
+        # phase even on pages where YOLO returned nothing.
+        yield _json.dumps({
+            "event": "page_detected", "page": page_idx + 1,
+        }) + "\n"
 
     yield _json.dumps({
         "event": "done",
@@ -487,19 +498,82 @@ def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Itera
     }) + "\n"
 
 
-@router.post("/ingest")
+def _run_job(user_id: str, job_id: str) -> None:
+    """Consume `_iter_ingest_events` and persist progress to job state.
+
+    Called from a thread so the FastAPI event loop stays responsive
+    while pdfium / YOLO inference runs.
+    """
+    pdf_path = ingest_jobs.source_pdf_path(user_id, job_id)
+    if not pdf_path.exists():
+        ingest_jobs.mark_error(user_id, job_id, "staged PDF missing")
+        return
+    state = ingest_jobs.load_state(user_id, job_id)
+    if state is None:
+        log.warning("ingest job %s/%s has no state; aborting", user_id, job_id)
+        return
+    try:
+        content = pdf_path.read_bytes()
+        for line in _iter_ingest_events(content, state["source"], user_id):
+            try:
+                event = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            ingest_jobs.apply_event(state, event)
+            ingest_jobs.save_state(user_id, state)
+        # Successful completion: clean up the staged PDF so we don't waste
+        # space on Cloud Run / GCS. State file stays so the user sees the
+        # "done" card until they dismiss it.
+        ingest_jobs.cleanup_source_pdf(user_id, job_id)
+    except ingest_jobs.JobDismissed:
+        log.info("ingest job %s/%s dismissed mid-run; stopping", user_id, job_id)
+    except Exception as e:
+        log.exception("ingest job %s/%s failed", user_id, job_id)
+        ingest_jobs.mark_error(user_id, job_id, str(e))
+
+
+def _spawn_job(user_id: str, job_id: str) -> None:
+    """Run the ingest job on a daemon thread so it works from both
+    `async def` endpoints (where there's a loop) and sync ones (where
+    `asyncio.get_running_loop()` would raise — those run in a worker
+    thread without a loop)."""
+    threading.Thread(
+        target=_run_job, args=(user_id, job_id), daemon=True,
+    ).start()
+
+
+def _job_to_schema(state: dict) -> IngestJobOut:
+    return IngestJobOut(
+        job_id=state["job_id"],
+        source=state.get("source", ""),
+        phase=state.get("phase", "rendering"),
+        started_at=state.get("started_at", ""),
+        updated_at=state.get("updated_at", ""),
+        total_pages=state.get("total_pages"),
+        pages_rendered=state.get("pages_rendered", 0),
+        pages_detected=state.get("pages_detected", 0),
+        total_saved=state.get("total_saved", 0),
+        skipped=state.get("skipped", 0),
+        error=state.get("error"),
+        stalled=bool(state.get("stalled", False)),
+    )
+
+
+@router.post("/ingest", response_model=IngestJobStartResponse)
 async def pdf_ingest_endpoint(
     file: UploadFile = File(...), user_id: str = UserId,
-) -> StreamingResponse:
-    """Multipart ingest. Used locally; in cloud the file is too large to fit
-    in a single Cloud Run request, so the client uses the signed-URL flow
-    (/upload-url + /ingest-from-upload) instead."""
+) -> IngestJobStartResponse:
+    """Multipart ingest (local-only). Stages the PDF and kicks off a
+    background job; the client polls `/api/pdf/jobs` for progress."""
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
     source_name = file.filename or "uploaded.pdf"
-    return StreamingResponse(
-        _iter_ingest_events(content, source_name, user_id),
-        media_type="application/x-ndjson",
-    )
+    job_id = ingest_jobs.new_job_id()
+    ingest_jobs.create_job(user_id, job_id, source_name)
+    ingest_jobs.source_pdf_path(user_id, job_id).write_bytes(content)
+    _spawn_job(user_id, job_id)
+    return IngestJobStartResponse(job_id=job_id)
 
 
 @router.post("/upload-url", response_model=UploadUrlResponse)
@@ -522,28 +596,65 @@ def pdf_upload_url_endpoint(
     return UploadUrlResponse(mode="signed-url", upload_id=upload_id, url=url)
 
 
-@router.post("/ingest-from-upload")
-def pdf_ingest_from_upload_endpoint(
+@router.post("/ingest-from-upload", response_model=IngestJobStartResponse)
+async def pdf_ingest_from_upload_endpoint(
     request: IngestFromUploadRequest,
     user_id: str = UserId,
-) -> StreamingResponse:
-    """Ingest a PDF previously uploaded via signed URL. Reads from the FUSE
-    mount path matching the GCS object key, then deletes the file."""
+) -> IngestJobStartResponse:
+    """Ingest a PDF previously uploaded via signed URL. Stages the PDF in
+    the job directory (so we can restart if the runner dies) and kicks
+    off a background job. The client polls `/api/pdf/jobs`."""
     upload_path = uploads_dir(user_id) / f"{request.upload_id}.pdf"
     if not upload_path.exists():
         raise HTTPException(status_code=404, detail="upload not found")
-    content = upload_path.read_bytes()
 
-    def iter_events_with_cleanup() -> Iterator[str]:
-        try:
-            yield from _iter_ingest_events(content, request.filename, user_id)
-        finally:
-            try:
-                upload_path.unlink()
-            except FileNotFoundError:
-                pass
+    job_id = ingest_jobs.new_job_id()
+    ingest_jobs.create_job(user_id, job_id, request.filename)
+    staged = ingest_jobs.source_pdf_path(user_id, job_id)
+    staged.write_bytes(upload_path.read_bytes())
+    try:
+        upload_path.unlink()
+    except FileNotFoundError:
+        pass
+    _spawn_job(user_id, job_id)
+    return IngestJobStartResponse(job_id=job_id)
 
-    return StreamingResponse(
-        iter_events_with_cleanup(),
-        media_type="application/x-ndjson",
+
+@router.get("/jobs", response_model=IngestJobsResponse)
+def pdf_jobs_endpoint(user_id: str = UserId) -> IngestJobsResponse:
+    """All ingest jobs for the user, newest first."""
+    return IngestJobsResponse(
+        jobs=[_job_to_schema(s) for s in ingest_jobs.list_jobs(user_id)],
     )
+
+
+@router.post("/jobs/{job_id}/restart", response_model=IngestJobStartResponse)
+def pdf_job_restart_endpoint(
+    job_id: str, user_id: str = UserId,
+) -> IngestJobStartResponse:
+    """Re-run a stalled or errored job from the staged PDF. The existing
+    `problem_exists` short-circuit makes this resume from where it died.
+    Returns a fresh job_id; the old job is deleted."""
+    state = ingest_jobs.load_state(user_id, job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    src_pdf = ingest_jobs.source_pdf_path(user_id, job_id)
+    if not src_pdf.exists():
+        raise HTTPException(
+            status_code=409,
+            detail="staged PDF gone; can't restart (already cleaned up?)",
+        )
+    new_id = ingest_jobs.new_job_id()
+    ingest_jobs.create_job(user_id, new_id, state.get("source", "uploaded.pdf"))
+    ingest_jobs.source_pdf_path(user_id, new_id).write_bytes(src_pdf.read_bytes())
+    ingest_jobs.delete_job(user_id, job_id)
+    _spawn_job(user_id, new_id)
+    return IngestJobStartResponse(job_id=new_id)
+
+
+@router.delete("/jobs/{job_id}")
+def pdf_job_dismiss_endpoint(job_id: str, user_id: str = UserId) -> Response:
+    """Remove a job's state + staged PDF entirely."""
+    if not ingest_jobs.delete_job(user_id, job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    return Response(status_code=204)

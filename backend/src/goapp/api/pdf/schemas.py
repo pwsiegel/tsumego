@@ -160,3 +160,26 @@ class UploadUrlResponse(BaseModel):
 class IngestFromUploadRequest(BaseModel):
     upload_id: str
     filename: str
+
+
+class IngestJobOut(BaseModel):
+    job_id: str
+    source: str
+    phase: Literal["rendering", "detecting", "done", "error"]
+    started_at: str
+    updated_at: str
+    total_pages: int | None
+    pages_rendered: int
+    pages_detected: int
+    total_saved: int
+    skipped: int
+    error: str | None
+    stalled: bool
+
+
+class IngestJobsResponse(BaseModel):
+    jobs: list[IngestJobOut]
+
+
+class IngestJobStartResponse(BaseModel):
+    job_id: str
