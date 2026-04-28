@@ -64,8 +64,24 @@
 .teacher-counter {
   font-size: 0.9rem;
   color: var(--text-muted);
-  min-width: 3.5rem;
-  text-align: center;
+  font-weight: 400;
+  margin-left: 0.25rem;
+}
+
+.teacher-nav .teacher-save-continue {
+  background: var(--indigo);
+  color: var(--bg);
+  border-color: var(--indigo-strong);
+}
+
+.teacher-nav .teacher-save-continue:hover:not(:disabled) {
+  background: var(--indigo-strong);
+}
+
+.teacher-nav .teacher-save-continue:disabled {
+  background: var(--indigo-soft);
+  border-color: var(--indigo-soft);
+  color: var(--bg);
 }
 
 .teacher-problem-meta {

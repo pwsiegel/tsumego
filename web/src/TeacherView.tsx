@@ -263,6 +263,35 @@ function StudentReview({ student }: { student: LinkedUser }) {
     }
   };
 
+  // Persist a single verdict and drop the attempt from the queue
+  // optimistically. The detail view advances naturally because the next
+  // render's batch is one shorter — `idx` now points at what was next.
+  const saveOne = async (aid: string, v: Verdict) => {
+    await api.teacher.review(studentUid, aid, v);
+    setItems((prev) => prev?.filter((it) => it.attempt.id !== aid) ?? null);
+    setDrafts((prev) => {
+      const next = new Map(prev);
+      next.delete(aid);
+      return next;
+    });
+    api.teacher.reviewed(studentUid).then(setHistory).catch(() => {});
+  };
+
+  // After items shrinks (single save), exit detail/grid if the current
+  // selection no longer has an item to render.
+  useEffect(() => {
+    if (items === null || selectedBatch === null) return;
+    const b = groupBatches(items).find((x) => x.sent_at === selectedBatch);
+    if (!b || b.items.length === 0) {
+      setSelectedBatch(null);
+      setSelectedIdx(null);
+      return;
+    }
+    if (selectedIdx !== null && selectedIdx >= b.items.length) {
+      setSelectedIdx(null);
+    }
+  }, [items, selectedBatch, selectedIdx]);
+
   const backLink = (
     <Link to="/teacher" className="back-link">← teacher view</Link>
   );
@@ -325,10 +354,7 @@ function StudentReview({ student }: { student: LinkedUser }) {
         setIdx={setSelectedIdx}
         drafts={drafts}
         setVerdict={setVerdict}
-        submitBatch={submitBatch}
-        submitting={submitting}
-        flash={flash}
-        error={error}
+        saveOne={saveOne}
       />
     );
   }
@@ -598,8 +624,7 @@ function GridTile({
 }
 
 function DetailView({
-  student, batch, idx, setIdx, drafts, setVerdict, submitBatch, submitting,
-  flash, error,
+  student, batch, idx, setIdx, drafts, setVerdict, saveOne,
 }: {
   student: LinkedUser;
   batch: { sent_at: string; items: TeacherAttemptWithProblem[] };
@@ -607,14 +632,14 @@ function DetailView({
   setIdx: (i: number | null) => void;
   drafts: Map<string, Verdict>;
   setVerdict: (aid: string, v: Verdict | null) => void;
-  submitBatch: () => void;
-  submitting: boolean;
-  flash: string | null;
-  error: string | null;
+  saveOne: (aid: string, v: Verdict) => Promise<void>;
 }) {
   const current = batch.items[idx];
   const verdict = drafts.get(current.attempt.id) ?? null;
-  const draftCount = batch.items.filter((it) => drafts.has(it.attempt.id)).length;
+  const total = batch.items.length;
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const stones: Stone[] = useMemo(() => {
     return (current.problem.stones ?? []).map((s) => ({
@@ -635,10 +660,24 @@ function DetailView({
     return boundingViewport(allPts);
   }, [current, stones]);
 
-  const goPrev = () => idx > 0 && setIdx(idx - 1);
-  const goNext = () => idx < batch.items.length - 1 && setIdx(idx + 1);
+  const goPrev = () => { if (idx > 0) setIdx(idx - 1); };
+  const goNext = () => { if (idx < total - 1) setIdx(idx + 1); };
   const onPick = (v: Verdict) => {
     setVerdict(current.attempt.id, verdict === v ? null : v);
+  };
+  const saveAndContinue = async () => {
+    if (!verdict) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await saveOne(current.attempt.id, verdict);
+      // Items shrink by one; parent re-renders with the next item now at
+      // this idx, or auto-exits if idx is out of range.
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -648,29 +687,38 @@ function DetailView({
           <button type="button" className="back-link" onClick={() => setIdx(null)}>
             ← back to submission
           </button>
-          <h1>Reviewing</h1>
+          <h1>
+            Problem {current.problem.source_board_idx + 1}
+            <span className="teacher-counter"> ({idx + 1} / {total})</span>
+          </h1>
           <div className="teacher-meta">
-            For <strong>{student.display_name}</strong> &nbsp;·&nbsp;
-            {idx + 1} / {batch.items.length}
+            For <strong>{student.display_name}</strong>
           </div>
         </div>
         <div className="teacher-nav">
-          <button onClick={goPrev} disabled={idx === 0}>‹ Prev</button>
-          <button onClick={goNext} disabled={idx >= batch.items.length - 1}>Next ›</button>
+          <button onClick={goPrev} disabled={idx === 0 || submitting}>
+            ‹ Prev
+          </button>
+          <button
+            onClick={saveAndContinue}
+            disabled={!verdict || submitting}
+            className="teacher-save-continue"
+            aria-label="Save verdict and continue to next problem"
+          >
+            {submitting ? 'Saving…' : 'Save & continue ›'}
+          </button>
+          <button
+            onClick={goNext}
+            disabled={idx >= total - 1 || submitting}
+            aria-label="Skip to next problem without saving"
+          >
+            Skip ›
+          </button>
         </div>
       </header>
 
-      <SubmitBar
-        draftCount={draftCount}
-        total={batch.items.length}
-        onSubmit={submitBatch}
-        submitting={submitting}
-      />
-
       <div className="teacher-problem-meta">
         <span className="teacher-source">{current.problem.source}</span>
-        <span className="dot">·</span>
-        <span>Problem {current.problem.source_board_idx + 1}</span>
         <span className="dot">·</span>
         <span>{current.problem.black_to_play ? 'Black to play' : 'White to play'}</span>
         <span className="dot">·</span>
@@ -711,20 +759,17 @@ function DetailView({
         <button
           className={`verdict correct${verdict === 'correct' ? ' selected' : ''}`}
           onClick={() => onPick('correct')}
+          disabled={submitting}
         >
           ✓ Correct
         </button>
         <button
           className={`verdict incorrect${verdict === 'incorrect' ? ' selected' : ''}`}
           onClick={() => onPick('incorrect')}
+          disabled={submitting}
         >
           ✗ Incorrect
         </button>
-        {verdict && (
-          <span className="verdict-status">
-            Drafted as {verdict}. Click again to clear.
-          </span>
-        )}
       </div>
 
       {current.problem.has_image && (
@@ -737,7 +782,6 @@ function DetailView({
         </details>
       )}
 
-      {flash && <div className="teacher-flash">{flash}</div>}
       {error && <div className="teacher-error">{error}</div>}
     </div>
   );
