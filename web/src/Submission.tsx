@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Board } from './Board';
-import { api, type AttemptWithProblem, type Submission as SubmissionT } from './api';
+import {
+  api,
+  type AttemptWithProblem,
+  type ProblemStatus,
+  type Submission as SubmissionT,
+} from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
 import './Reviewed.css';
@@ -15,6 +20,7 @@ export function Submission() {
   const sentAt = decodeURIComponent(encSentAt);
   const navigate = useNavigate();
   const [submission, setSubmission] = useState<SubmissionT | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, ProblemStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [acking, setAcking] = useState(false);
 
@@ -22,6 +28,9 @@ export function Submission() {
     api.study.getSubmission(sentAt)
       .then(setSubmission)
       .catch((e) => setError(String(e)));
+    api.study.problemStatuses()
+      .then(setStatuses)
+      .catch(() => {});
   }, [sentAt]);
 
   const ack = async () => {
@@ -97,6 +106,7 @@ export function Submission() {
             item={it}
             teacherId={submission.reviewer_id}
             teacherLabel={teacherLabel}
+            status={statuses[it.problem.id] ?? null}
           />
         ))}
       </ul>
@@ -105,11 +115,12 @@ export function Submission() {
 }
 
 function SubmissionRow({
-  item, teacherId, teacherLabel,
+  item, teacherId, teacherLabel, status,
 }: {
   item: AttemptWithProblem;
   teacherId: string;
   teacherLabel: string;
+  status: ProblemStatus | null;
 }) {
   const stones: Stone[] = (item.problem.stones ?? []).map((s) => ({
     x: s.col, y: s.row, color: s.color as 'B' | 'W',
@@ -119,6 +130,9 @@ function SubmissionRow({
   const allPts = [...stones.map((s) => ({ x: s.x, y: s.y })), ...moves];
   const viewport = boundingViewport(allPts);
   const review = item.attempt.reviews[teacherId];
+  const retried = review?.verdict === 'incorrect'
+    && status?.latest_attempt_at != null
+    && status.latest_attempt_at > item.attempt.submitted_at;
   const solveHref = `/collections/${encodeURIComponent(item.problem.source)}/solve/${item.problem.id}?from_submission=${encodeURIComponent(item.attempt.sent_at ?? '')}`;
 
   return (
@@ -158,6 +172,12 @@ function SubmissionRow({
               <li className="reviewed-verdict v-pending">
                 <span className="reviewed-verdict-mark">…</span>
                 <span className="reviewed-verdict-label">awaiting {teacherLabel}</span>
+              </li>
+            )}
+            {retried && (
+              <li className="reviewed-verdict v-retried">
+                <span className="reviewed-verdict-mark">↻</span>
+                <span className="reviewed-verdict-label">incorrect but retried</span>
               </li>
             )}
           </ul>

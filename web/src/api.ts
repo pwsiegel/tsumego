@@ -254,6 +254,7 @@ export type Profile = {
 
 export type ProblemStatus = {
   last_verdict: 'correct' | 'incorrect' | null;
+  latest_attempt_at: string | null;
 };
 
 // ---------- /api/val ----------

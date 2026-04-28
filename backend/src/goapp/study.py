@@ -290,7 +290,10 @@ def problem_statuses(user_id: str) -> dict[str, dict]:
             if ts > latest_at:
                 latest_at = ts
                 last_verdict = r.get("verdict")
-        out[pid] = {"last_verdict": last_verdict}
+        out[pid] = {
+            "last_verdict": last_verdict,
+            "latest_attempt_at": a.get("submitted_at"),
+        }
     return out
 
 

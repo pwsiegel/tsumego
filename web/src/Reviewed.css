@@ -194,6 +194,12 @@
   color: var(--warning-mid);
 }
 
+.reviewed-verdict.v-retried {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-strong);
+}
+
 .submission-actions {
   margin-top: 0.6rem;
   display: flex;

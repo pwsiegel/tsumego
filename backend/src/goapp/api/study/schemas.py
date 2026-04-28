@@ -70,6 +70,7 @@ class AttemptsBundleResponse(BaseModel):
 
 class ProblemStatus(BaseModel):
     last_verdict: str | None = None  # "correct" | "incorrect" | None
+    latest_attempt_at: str | None = None
 
 
 class ProblemStatusesResponse(BaseModel):
