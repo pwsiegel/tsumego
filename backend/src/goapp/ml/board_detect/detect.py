@@ -1,17 +1,17 @@
-"""Board detection via a fine-tuned YOLOv8 model."""
+"""Board detection via the trained YOLOv8 detector (ONNX runtime)."""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 
+from ...paths import BOARD_DETECTOR_ONNX as MODEL_PATH
+from .. import _yolo_onnx
+
 log = logging.getLogger(__name__)
 
-from ...paths import BOARD_DETECTOR_PATH as MODEL_PATH  # noqa: E402
 CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.4
 # Real Go boards (even a narrow top/bottom strip of 19×5) cap around 4:1.
@@ -33,56 +33,26 @@ class ModelNotLoaded(RuntimeError):
     pass
 
 
-@lru_cache(maxsize=1)
-def _load_model():
-    if not MODEL_PATH.exists():
-        raise ModelNotLoaded(f"model file not found: {MODEL_PATH}")
-    from ultralytics import YOLO  # imported lazily so base deps don't need it
-    log.info("loading YOLO model from %s", MODEL_PATH)
-    model = YOLO(str(MODEL_PATH))
-    # ultralytics lazily fuses BN layers on the first predict() and can raise
-    # AttributeError on already-fused Conv modules (8.4.39). The error is
-    # one-shot and self-heals: subsequent predicts work fine. Force the fuse
-    # at load time and absorb the glitch so user-facing requests never see it.
-    try:
-        model.predict(
-            np.zeros((640, 640, 3), dtype=np.uint8),
-            conf=0.99, iou=0.99, verbose=False,
-        )
-    except AttributeError as e:
-        log.info("YOLO warmup absorbed fuse glitch: %s", e)
-    return model
-
-
 def detect_boards_yolo(image_bgr: np.ndarray) -> list[BoardBBox]:
     """Run YOLO inference; return detected boards as BoardBBox list."""
-    model = _load_model()
-    # ultralytics accepts numpy images directly (it handles BGR/RGB internally).
-    results = model.predict(
-        image_bgr,
-        conf=CONF_THRESHOLD,
-        iou=IOU_THRESHOLD,
-        verbose=False,
+    if not MODEL_PATH.exists():
+        raise ModelNotLoaded(f"model file not found: {MODEL_PATH}")
+    dets = _yolo_onnx.predict(
+        MODEL_PATH, image_bgr,
+        conf_thresh=CONF_THRESHOLD, iou_thresh=IOU_THRESHOLD,
     )
-    if not results:
-        return []
-    r = results[0]
-    if r.boxes is None or len(r.boxes) == 0:
-        return []
 
-    xyxy = r.boxes.xyxy.cpu().numpy()
-    confs = r.boxes.conf.cpu().numpy()
     out: list[BoardBBox] = []
-    for (x0, y0, x1, y1), conf in zip(xyxy, confs):
-        w = max(1.0, float(x1 - x0))
-        h = max(1.0, float(y1 - y0))
+    for d in dets:
+        w = max(1.0, d.x1 - d.x0)
+        h = max(1.0, d.y1 - d.y0)
         aspect = h / w
         if aspect < MIN_ASPECT_RATIO or aspect > MAX_ASPECT_RATIO:
             log.info("rejecting bbox with aspect %.2f", aspect)
             continue
         out.append(BoardBBox(
-            x0=int(x0), y0=int(y0), x1=int(x1), y1=int(y1),
-            confidence=float(conf),
+            x0=int(d.x0), y0=int(d.y0), x1=int(d.x1), y1=int(d.y1),
+            confidence=d.conf,
         ))
     # Reading order: top-to-bottom within each column, columns left-to-right.
     # Problems in Go books are typically laid out as a grid; a board's
@@ -103,3 +73,13 @@ def detect_boards_yolo(image_bgr: np.ndarray) -> list[BoardBBox]:
 
 def model_available() -> bool:
     return MODEL_PATH.exists()
+
+
+def warm() -> None:
+    """Pre-load the ONNX session and run one dummy inference."""
+    if not MODEL_PATH.exists():
+        raise ModelNotLoaded(f"model file not found: {MODEL_PATH}")
+    _yolo_onnx.predict(
+        MODEL_PATH, np.zeros((640, 640, 3), dtype=np.uint8),
+        conf_thresh=0.99, iou_thresh=0.99,
+    )

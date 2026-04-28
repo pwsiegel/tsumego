@@ -556,6 +556,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-cloud-storage" },
     { name = "numpy" },
+    { name = "onnxruntime" },
     { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -571,7 +572,6 @@ dev = [
 ]
 ml = [
     { name = "onnx" },
-    { name = "onnxruntime" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "ultralytics" },
@@ -583,7 +583,7 @@ requires-dist = [
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "onnx", marker = "extra == 'ml'", specifier = ">=1.17" },
-    { name = "onnxruntime", marker = "extra == 'ml'", specifier = ">=1.20" },
+    { name = "onnxruntime", specifier = ">=1.20" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pillow", specifier = ">=11.0" },
     { name = "pydantic", specifier = ">=2.9" },

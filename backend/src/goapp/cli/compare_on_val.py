@@ -54,12 +54,11 @@ def main() -> None:
     val_dir = args.val_dir.expanduser()
     model_path = args.model.expanduser()
 
-    # Point the cached model loader at the requested weights without
-    # touching the live install. Must be set BEFORE any detect_stones_cnn
-    # call so the lru_cache picks up the override.
+    # Point the detect module at the requested weights without touching
+    # the live install. The shared onnxruntime session cache is keyed on
+    # path, so a fresh path automatically yields a fresh session.
     from ..ml.stone_detect import detect as si
     si.MODEL_PATH = model_path
-    si._load_model.cache_clear()
     print(f"using model: {model_path}")
 
     manifest = json.loads((val_dir / "manifest.json").read_text())

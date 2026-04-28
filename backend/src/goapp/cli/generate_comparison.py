@@ -25,11 +25,11 @@ from .compare_on_val import _run_pipeline
 
 
 def _run_with_model(crop_bgr, model_path: Path, peak_thresh: float):
-    """Clear the cached YOLO model, point it at `model_path`, run the
-    full discretize pipeline, return a list of (col, row, color) tuples."""
+    """Point the stone detector at `model_path`, run the full discretize
+    pipeline, return a list of (col, row, color) tuples. The session
+    cache is keyed on path, so swapping models doesn't need a clear."""
     from ..ml.stone_detect import detect as si
     si.MODEL_PATH = model_path
-    si._load_model.cache_clear()
     return _run_pipeline(crop_bgr, peak_thresh)
 
 

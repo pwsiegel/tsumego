@@ -1,5 +1,5 @@
 .PHONY: help setup api web dev lint \
-       synth train-boards train-stones validate \
+       synth train-boards train-stones validate export-models \
        docker-up docker-down \
        deploy logs \
        modal-upload-synth modal-gen-synth modal-train-smoke modal-train-boards modal-train-stones modal-pull-weights
@@ -57,11 +57,14 @@ train-stones: ## Train the stone detector (set DEVICE=cpu if no GPU)
 
 DATASET ?= hm2
 VAL_DIR ?= $(HOME)/data/go-app/data/val/$(DATASET)
-MODEL   ?= backend/data/models/stone_detector.pt
+MODEL   ?= $(CURDIR)/backend/data/models/stone_detector.onnx
 
 validate: ## Run pipeline against val dataset and print report
 	uv --directory backend run python -m goapp.cli.compare_on_val \
 		--val-dir $(VAL_DIR) --model $(MODEL) --status accepted --verbose
+
+export-models: ## Export trained .pt weights to ONNX for the lean serving image
+	uv --directory backend run --extra ml python scripts/export_onnx.py
 
 # ---------------------------------------------------------------------------
 # Docker

@@ -1,4 +1,4 @@
-"""Stone detection via the trained YOLOv8 detector.
+"""Stone detection via the trained YOLOv8 detector (ONNX runtime).
 
 Two classes: 0 = B (black), 1 = W (white). Each prediction is a bbox
 around a stone; we take the bbox center as the stone position.
@@ -7,14 +7,14 @@ around a stone; we take the bbox center as the stone position.
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 
 import cv2
 import numpy as np
 
-log = logging.getLogger(__name__)
+from ...paths import STONE_DETECTOR_ONNX as MODEL_PATH
+from .. import _yolo_onnx
 
-from ...paths import STONE_DETECTOR_PATH as MODEL_PATH  # noqa: E402
+log = logging.getLogger(__name__)
 
 PEAK_THRESH = 0.3  # kept as the `peak_thresh` kwarg name for API compat
 TRAIN_IMG_SIZE = 640  # training imgsz; used as default for larger crops
@@ -43,21 +43,14 @@ def model_available() -> bool:
     return MODEL_PATH.exists()
 
 
-@lru_cache(maxsize=1)
-def _load_model():
+def warm() -> None:
+    """Pre-load the ONNX session and run one dummy inference."""
     if not MODEL_PATH.exists():
         raise StoneModelNotLoaded(f"model file not found: {MODEL_PATH}")
-    from ultralytics import YOLO
-    log.info("loading stone YOLO from %s", MODEL_PATH)
-    model = YOLO(str(MODEL_PATH))
-    # Force the lazy Conv+BN fusion to run once, single-threaded, before
-    # the cached model is shared. Otherwise the first concurrent
-    # predict() calls race on `Conv.bn` mutation and raise
-    # `'Conv' object has no attribute 'bn'`. The val endpoint's
-    # ThreadPoolExecutor exposes this every time without a warmup.
-    warm = np.zeros((TRAIN_IMG_SIZE, TRAIN_IMG_SIZE, 3), dtype=np.uint8)
-    model.predict(warm, imgsz=TRAIN_IMG_SIZE, verbose=False)
-    return model
+    _yolo_onnx.predict(
+        MODEL_PATH, np.zeros((TRAIN_IMG_SIZE, TRAIN_IMG_SIZE, 3), dtype=np.uint8),
+        conf_thresh=0.99, iou_thresh=0.99, imgsz=TRAIN_IMG_SIZE,
+    )
 
 
 def detect_stones_cnn(
@@ -70,35 +63,19 @@ def detect_stones_cnn(
     coordinate space. `peak_thresh` is used as the YOLO confidence
     threshold (kept as kwarg name for API compatibility).
     """
-    model = _load_model()
+    if not MODEL_PATH.exists():
+        raise StoneModelNotLoaded(f"model file not found: {MODEL_PATH}")
     orig_h, orig_w = crop_bgr.shape[:2]
     if orig_h == 0 or orig_w == 0:
         return []
 
-    # The model was trained on per-board crops at imgsz=640. Small crops
-    # (e.g. cho-chikun 336x136) have stones at ~9px radius which is below
-    # the training distribution — upscaling to 640 brings them into range.
-    # Very large crops (>640) are downscaled to 640 as usual.
-    imgsz = TRAIN_IMG_SIZE
-
-    results = model.predict(
-        crop_bgr,
-        imgsz=imgsz,
-        conf=float(peak_thresh),
-        iou=STONE_NMS_IOU,
-        augment=True,  # test-time aug: multi-scale + flip, merged via NMS
-        verbose=False,
+    dets = _yolo_onnx.predict(
+        MODEL_PATH, crop_bgr,
+        conf_thresh=float(peak_thresh), iou_thresh=STONE_NMS_IOU,
+        imgsz=TRAIN_IMG_SIZE,
     )
-    if not results:
+    if not dets:
         return []
-    res = results[0]
-    if res.boxes is None or len(res.boxes) == 0:
-        return []
-
-    # xyxy in original-image pixels; cls in {0: B, 1: W}; conf in [0, 1]
-    xyxy = res.boxes.xyxy.cpu().numpy()
-    cls = res.boxes.cls.cpu().numpy().astype(int)
-    conf = res.boxes.conf.cpu().numpy()
 
     # Post-classify color from the actual pixel values at each detection
     # center. Pixel darkness is unambiguous even when YOLO's class head
@@ -109,11 +86,11 @@ def detect_stones_cnn(
     )
 
     detections: list[dict] = []
-    for (x0, y0, x1, y1), c, p in zip(xyxy, cls, conf):
-        cx = float((x0 + x1) / 2.0)
-        cy = float((y0 + y1) / 2.0)
-        r = float(max(x1 - x0, y1 - y0) / 2.0)
-        color = "B" if int(c) == 0 else "W"
+    for d in dets:
+        cx = (d.x0 + d.x1) / 2.0
+        cy = (d.y0 + d.y1) / 2.0
+        r = max(d.x1 - d.x0, d.y1 - d.y0) / 2.0
+        color = "B" if d.cls == 0 else "W"
         # Sample the center fraction of the bbox — avoids grid lines at
         # stone edges and captures the stone's actual fill color.
         inner = max(1, int(r * COLOR_SAMPLE_INNER_FRAC))
@@ -132,14 +109,16 @@ def detect_stones_cnn(
             "y": cy,
             "r": r,
             "color": color,
-            "conf": float(p),
+            "conf": d.conf,
         })
 
-    # Deduplicate: TTA can leave duplicates across scales. True duplicates
-    # sit within ~0.2·pitch of each other; adjacent-cell stones are a
-    # full pitch apart. A threshold of half the smaller radius (since
-    # r ≈ 0.4·pitch, this is ~0.2·pitch) keeps adjacent stones separate
-    # while collapsing overlapping detections of the same stone.
+    # Deduplicate near-identical centers. (TTA used to produce these via
+    # multi-scale + flip merging in the ultralytics path; the ONNX path
+    # runs a single scale, but residual NMS overlap can still leave
+    # duplicates within ~0.2·pitch of each other while adjacent-cell
+    # stones are a full pitch apart. A threshold of half the smaller
+    # radius (since r ≈ 0.4·pitch, this is ~0.2·pitch) keeps adjacent
+    # stones separate while collapsing overlapping detections.
     detections.sort(key=lambda d: -d["conf"])
     kept: list[dict] = []
     for d in detections:

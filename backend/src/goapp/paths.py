@@ -21,6 +21,9 @@ Subdirectory layout under $GOAPP_DATA_DIR:
         yolo_stones/         derived: YOLO stone-detector dataset
         bbox_test/           per-session PDF pages for the bbox tester
         tsumego/{user_id}/   per-user library of accepted problems
+        attempts/{user_id}/
+            attempt_*.json   per-attempt records (sent_to / reviews embedded)
+            teachers/{teacher_id}.json   one file per teacher (token + label)
         uploads/{user_id}/   transient PDF uploads (signed-URL flow only)
         training_runs/       ultralytics training run artifacts
 """
@@ -83,9 +86,44 @@ def uploads_object_key(user_id: str, upload_id: str) -> str:
     return f"data/uploads/{user_id}/{upload_id}.pdf"
 
 
+# --- ingest jobs: per-(user, job_id) state + staged source PDF ---
+INGEST_JOBS_ROOT = DATA_DIR / "ingest_jobs"
+
+
+def ingest_jobs_dir(user_id: str) -> Path:
+    return INGEST_JOBS_ROOT / user_id
+
+
+def ingest_job_dir(user_id: str, job_id: str) -> Path:
+    return ingest_jobs_dir(user_id) / job_id
+
+
+# --- attempts: per-user solve attempts + teacher reviews ---
+ATTEMPTS_ROOT = DATA_DIR / "attempts"
+
+
+def attempts_dir(user_id: str) -> Path:
+    return ATTEMPTS_ROOT / user_id
+
+
+# --- teachers: per-(user, teacher) capability-URL files ---
+def teachers_dir(user_id: str) -> Path:
+    return attempts_dir(user_id) / "teachers"
+
+
+def teacher_path(user_id: str, teacher_id: str) -> Path:
+    return teachers_dir(user_id) / f"{teacher_id}.json"
+
+
 # --- model weights ---
+# .pt files are the training-format weights (used by ultralytics/torch in
+# train + export pipelines). .onnx files are the serving-format weights
+# loaded by onnxruntime in the lean Cloud Run image. Export via
+# `make export-models`.
 BOARD_DETECTOR_PATH = MODELS_DIR / "board_detector.pt"
 STONE_DETECTOR_PATH = MODELS_DIR / "stone_detector.pt"
+BOARD_DETECTOR_ONNX = MODELS_DIR / "board_detector.onnx"
+STONE_DETECTOR_ONNX = MODELS_DIR / "stone_detector.onnx"
 
 # --- training run artifacts (ultralytics' project dir) ---
 TRAINING_RUNS_DIR = DATA_DIR / "training_runs"

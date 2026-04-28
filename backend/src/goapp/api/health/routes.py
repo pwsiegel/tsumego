@@ -26,10 +26,10 @@ _lock = threading.Lock()
 
 def _warm_models() -> None:
     try:
-        from ...ml.board_detect.detect import _load_model as load_board
-        from ...ml.stone_detect.detect import _load_model as load_stones
-        load_board()
-        load_stones()
+        from ...ml.board_detect.detect import warm as warm_board
+        from ...ml.stone_detect.detect import warm as warm_stones
+        warm_board()
+        warm_stones()
         with _lock:
             _state["ready"] = True
         log.info("models warmed: board + stone detectors loaded")

@@ -814,6 +814,38 @@ the user wanted to leave the tab. Updates the deferred-ingest entry
 below — done lightweight (in-process executor, JSON state files), no
 Cloud Tasks dependency.
 
+## 2026-04-27 — slim serving image: torch+ultralytics → onnxruntime
+
+Goal: cut the Cloud Run cold-start cost. The previous serving image
+shipped CPU torch + torchvision + ultralytics (~1.4 GB of inference
+deps) just to call `YOLO(...).predict()` on two small `.pt` files.
+
+Approach:
+
+- One-time ONNX export via `make export-models` (uses `[ml]` extras
+  that already exist for training). Produces `board_detector.onnx` /
+  `stone_detector.onnx` next to the `.pt` files (~12 MB each).
+- New shared helper `goapp/ml/_yolo_onnx.py`: letterbox preprocess,
+  YOLOv8 (1, 4+C, N) decode, NMS via `cv2.dnn.NMSBoxes`, rescale boxes
+  back to original-image coords. ~110 LoC.
+- `board_detect/detect.py` and `stone_detect/detect.py` rewritten as
+  thin wrappers around the helper. Each exposes `warm()` for the
+  health-check warmer; the old `_load_model` / lru_cache + ultralytics
+  fuse-glitch warmups are gone.
+- `onnxruntime` moved from `[ml]` extras into base deps; torch /
+  torchvision / ultralytics / onnx are training-only.
+- Dockerfile loses the torch index install, the ultralytics install,
+  the headless-cv2 force-reinstall (only existed because ultralytics
+  pulled in the GUI wheel), and the libgl1/libglib apt step.
+- TTA (`augment=True`) was dropped from stone_detect — no direct ONNX
+  equivalent. Counter-intuitive: validation accuracy on `hm2`
+  *improved* (122/124 = 98.4%, two single-stone diffs) — TTA was
+  apparently injecting more false positives than recall gains.
+
+Result: image **~2 GB → 755 MB**, container reaches `models_ready`
+within ~6 s of `docker run`. Cold start should now be small enough to
+consider dropping `--no-cpu-throttling` from the Cloud Run config.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
