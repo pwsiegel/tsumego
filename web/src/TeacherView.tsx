@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Board } from './Board';
 import { api, type LinkedUser, type TeacherAttemptWithProblem } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
 import type { Stone } from './types';
+import './Home.css';
 import './TeacherView.css';
 
 type Verdict = 'correct' | 'incorrect';
 
-/** Authenticated reviewer view. Three modes inside a single student:
+/** Authenticated reviewer view.
  *
+ * Without `:student_uid`: a landing page that mirrors the student-side
+ * Home layout, with Students and Submissions sections.
+ *
+ * With `:student_uid`: a per-student review flow with three modes —
  *   1. entry  — list of pending submissions (one per `sent_at`)
  *   2. grid   — tile grid for one submission, with verdict buttons
  *   3. detail — full board for one attempt, with prev/next inside submission
- *
- * If the caller has no `:student_uid` in the URL, we either auto-redirect
- * to the only linked student, or render a picker. */
+ */
 export function TeacherView() {
   const { student_uid: encStudentUid } = useParams();
   const studentUid = encStudentUid ? decodeURIComponent(encStudentUid) : null;
-  const navigate = useNavigate();
 
   const [students, setStudents] = useState<LinkedUser[] | null>(null);
   const [studentsError, setStudentsError] = useState<string | null>(null);
@@ -29,14 +31,6 @@ export function TeacherView() {
       .then(setStudents)
       .catch((e) => setStudentsError(String(e)));
   }, []);
-
-  // Auto-redirect to the only linked student if we landed on /teacher.
-  useEffect(() => {
-    if (studentUid || !students) return;
-    if (students.length === 1) {
-      navigate(`/teacher/students/${encodeURIComponent(students[0].user_id)}`, { replace: true });
-    }
-  }, [students, studentUid, navigate]);
 
   if (studentsError) {
     return (
@@ -50,46 +44,8 @@ export function TeacherView() {
     return <div className="teacher" style={{ color: '#666' }}>Loading…</div>;
   }
 
-  if (students.length === 0) {
-    return (
-      <div className="teacher">
-        <header className="teacher-header">
-          <div>
-            <Link to="/" className="back-link">← student view</Link>
-            <h1>Teacher review</h1>
-          </div>
-        </header>
-        <p className="teacher-empty">
-          No students have linked you yet.
-        </p>
-      </div>
-    );
-  }
-
   if (!studentUid) {
-    return (
-      <div className="teacher">
-        <header className="teacher-header">
-          <div>
-            <Link to="/" className="back-link">← student view</Link>
-            <h1>Teacher review</h1>
-            <div className="teacher-meta">Select a student.</div>
-          </div>
-        </header>
-        <ul className="teacher-batch-list">
-          {students.map((s) => (
-            <li key={s.user_id} className="teacher-batch-row">
-              <Link
-                to={`/teacher/students/${encodeURIComponent(s.user_id)}`}
-                className="teacher-batch-btn"
-              >
-                <div className="teacher-batch-when">{s.display_name}</div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
+    return <TeacherLanding students={students} />;
   }
 
   const student = students.find((s) => s.user_id === studentUid) ?? null;
@@ -103,6 +59,124 @@ export function TeacherView() {
   }
 
   return <StudentReview student={student} hasOthers={students.length > 1} />;
+}
+
+type PendingBatch = {
+  student: LinkedUser;
+  sent_at: string;
+  count: number;
+};
+
+function TeacherLanding({ students }: { students: LinkedUser[] }) {
+  const [pending, setPending] = useState<PendingBatch[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const all = await Promise.all(
+        students.map(async (s) => {
+          try {
+            const items = await api.teacher.queue(s.user_id);
+            return { student: s, items };
+          } catch {
+            return { student: s, items: [] as TeacherAttemptWithProblem[] };
+          }
+        }),
+      );
+      if (cancelled) return;
+      const flat: PendingBatch[] = [];
+      for (const { student, items } of all) {
+        for (const b of groupBatches(items)) {
+          flat.push({ student, sent_at: b.sent_at, count: b.items.length });
+        }
+      }
+      flat.sort((a, b) => (b.sent_at || '').localeCompare(a.sent_at || ''));
+      setPending(flat);
+    })();
+    return () => { cancelled = true; };
+  }, [students]);
+
+  return (
+    <div className="home">
+      <header className="home-header">
+        <h1>Teacher review</h1>
+        <nav className="home-nav">
+          <Link to="/" className="dim">student view</Link>
+        </nav>
+      </header>
+
+      <section className="home-section teachers-section">
+        <div className="section-heading">
+          <h2>Students</h2>
+        </div>
+        <div className="section-body">
+          {students.length === 0 ? (
+            <p className="dim">
+              No students have linked you yet.
+            </p>
+          ) : (
+            <ul className="teachers-list">
+              {students.map((s) => (
+                <li key={s.user_id} className="teacher-row">
+                  <Link
+                    to={`/teacher/students/${encodeURIComponent(s.user_id)}`}
+                    className="teacher-row-link"
+                  >
+                    <span className="teacher-label">{s.display_name}</span>
+                    {s.email && (
+                      <span className="teacher-email">{s.email}</span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section className="home-section submissions-section">
+        <div className="section-heading">
+          <h2>Submissions</h2>
+        </div>
+        <div className="section-body">
+          {pending === null && <p className="dim">Loading…</p>}
+          {pending !== null && pending.length === 0 && (
+            <p className="dim">All caught up — nothing pending right now.</p>
+          )}
+          {pending !== null && pending.length > 0 && (
+            <ul className="submissions-list">
+              {pending.map((p) => (
+                <li
+                  key={`${p.student.user_id}|${p.sent_at}`}
+                  className="submissions-row"
+                >
+                  <Link
+                    to={`/teacher/students/${encodeURIComponent(p.student.user_id)}`}
+                    className="submissions-row-link"
+                  >
+                    <div className="submissions-row-main">
+                      <span className="submissions-state state-pending">
+                        Pending review
+                      </span>
+                      <span className="submissions-row-teacher">
+                        {p.student.display_name}
+                      </span>
+                      <span className="submissions-row-when">
+                        submitted {formatTimestamp(p.sent_at)}
+                      </span>
+                    </div>
+                    <div className="submissions-row-meta">
+                      {p.count} problem{p.count === 1 ? '' : 's'}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function StudentReview({

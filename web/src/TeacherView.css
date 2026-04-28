@@ -6,6 +6,16 @@
   color: var(--text);
 }
 
+.teacher-row-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.teacher-row-link:hover .teacher-label {
+  text-decoration: underline;
+}
+
 .teacher-header {
   display: flex;
   align-items: flex-start;

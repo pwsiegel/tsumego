@@ -217,6 +217,9 @@ export function Home() {
               <li key={t.user_id} className="teacher-row">
                 <div className="teacher-row-main">
                   <span className="teacher-label">{t.display_name}</span>
+                  {t.email && (
+                    <span className="teacher-email">{t.email}</span>
+                  )}
                 </div>
               </li>
             ))}

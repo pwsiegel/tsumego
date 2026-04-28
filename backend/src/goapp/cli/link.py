@@ -16,13 +16,22 @@ import sys
 
 from ..auth import _hash_email
 from ..links import add_teacher, list_teachers, remove_teacher
+from ..profile import load_profile, save_profile
 
 
-def resolve_user_id(s: str) -> str:
+def resolve_user_id(s: str) -> tuple[str, str | None]:
+    """Returns (user_id, email_or_None). When given an email we both hash
+    it for the uid and return the email so callers can record it."""
     s = s.strip()
     if "@" in s:
-        return _hash_email(s.lower())
-    return s
+        email = s.lower()
+        return _hash_email(email), email
+    return s, None
+
+
+def _record_email(user_id: str, email: str | None) -> None:
+    if email and load_profile(user_id).get("email") != email:
+        save_profile(user_id, email=email)
 
 
 def main() -> int:
@@ -32,10 +41,14 @@ def main() -> int:
     p.add_argument("--remove", action="store_true", help="remove the link instead of adding it")
     args = p.parse_args()
 
-    student_uid = resolve_user_id(args.student)
-    teacher_uid = resolve_user_id(args.teacher)
+    student_uid, student_email = resolve_user_id(args.student)
+    teacher_uid, teacher_email = resolve_user_id(args.teacher)
     print(f"student: {student_uid}")
     print(f"teacher: {teacher_uid}")
+
+    if not args.remove:
+        _record_email(student_uid, student_email)
+        _record_email(teacher_uid, teacher_email)
 
     if args.remove:
         ok = remove_teacher(student_uid, teacher_uid)

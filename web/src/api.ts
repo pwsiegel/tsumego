@@ -243,9 +243,13 @@ export type TeacherAttemptWithProblem = {
 export type LinkedUser = {
   user_id: string;
   display_name: string;
+  email: string | null;
 };
 
-export type Profile = { display_name: string | null };
+export type Profile = {
+  display_name: string | null;
+  email: string | null;
+};
 
 export type ProblemStatus = {
   last_verdict: 'correct' | 'incorrect' | null;

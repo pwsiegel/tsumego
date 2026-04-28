@@ -87,6 +87,7 @@ class TeacherBundleResponse(BaseModel):
 class LinkedUser(BaseModel):
     user_id: str
     display_name: str       # falls back to user_id
+    email: str | None = None
 
 
 class LinkedTeachersResponse(BaseModel):
@@ -136,6 +137,7 @@ class AckSubmissionResponse(BaseModel):
 
 class Profile(BaseModel):
     display_name: str | None = None
+    email: str | None = None
 
 
 class UpdateProfileRequest(BaseModel):

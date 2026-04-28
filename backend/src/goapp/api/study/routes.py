@@ -15,7 +15,7 @@ from fastapi.responses import Response
 from ...auth import user_id_from_request
 from ...links import is_teacher_of, list_teachers, students_of
 from ...paths import tsumego_dir
-from ...profile import display_name, load_profile, save_profile
+from ...profile import display_name, email_for, load_profile, save_profile
 from ...study import (
     ack_submission,
     attempts_for_problem,
@@ -132,7 +132,11 @@ def _teacher_bundle(
 
 
 def _linked(user_id: str) -> LinkedUser:
-    return LinkedUser(user_id=user_id, display_name=display_name(user_id))
+    return LinkedUser(
+        user_id=user_id,
+        display_name=display_name(user_id),
+        email=email_for(user_id),
+    )
 
 
 def _require_teacher_of(reviewer_uid: str, student_uid: str) -> None:

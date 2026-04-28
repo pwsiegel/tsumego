@@ -24,11 +24,29 @@ def _hash_email(email: str) -> str:
     return hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
 
 
-def user_id_from_request(request: Request) -> str:
+def _email_from_request(request: Request) -> str | None:
     raw = request.headers.get(IAP_HEADER)
     if not raw:
-        return LOCAL_USER_ID
+        return None
     email = raw.split(":", 1)[-1].strip().lower()
-    if not email:
+    return email or None
+
+
+def user_id_from_request(request: Request) -> str:
+    """Resolve the IAP-authenticated caller's user_id.
+
+    Side effect: when we see an email for the first time on this account,
+    record it in the user's profile so the rest of the app can show it
+    next to their display_name. We only write when something would
+    actually change, so steady-state requests don't touch storage.
+    """
+    email = _email_from_request(request)
+    if email is None:
         return LOCAL_USER_ID
-    return _hash_email(email)
+    user_id = _hash_email(email)
+    # Lazy import to avoid a top-level cycle (profile imports paths,
+    # which is benign, but keep auth.py free of profile-side concerns).
+    from .profile import load_profile, save_profile
+    if load_profile(user_id).get("email") != email:
+        save_profile(user_id, email=email)
+    return user_id

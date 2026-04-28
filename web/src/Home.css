@@ -123,6 +123,12 @@
   margin-right: 0.5rem;
 }
 
+.teacher-email {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  font-family: ui-monospace, monospace;
+}
+
 .teacher-added {
   font-size: 0.85rem;
   color: var(--text-faint);
