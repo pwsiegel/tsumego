@@ -17,7 +17,7 @@
 .edge-status {
   flex: 1;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .edge-actions {
@@ -31,7 +31,7 @@
 
 .edge-message {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .edge-stage {
@@ -70,7 +70,7 @@
   flex: 0 0 auto;
   min-width: 18rem;
   font-size: 0.85rem;
-  background: #fafafa;
+  background: var(--bg-subtle);
   border: 1px solid #e3e3e3;
   border-radius: 4px;
   padding: 0.75rem 1rem;
@@ -86,7 +86,7 @@
 .edge-summary th, .edge-summary td {
   text-align: left;
   padding: 0.2rem 0.4rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-soft);
 }
 .edge-summary .real {
   color: rgb(0, 130, 50);
@@ -99,5 +99,5 @@
 .edge-summary .agg {
   margin-top: 0.75rem;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
 }

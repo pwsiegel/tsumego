@@ -17,7 +17,7 @@
 .ix-status {
   flex: 1;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .ix-actions {
@@ -31,7 +31,7 @@
 
 .ix-message {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .ix-stage {

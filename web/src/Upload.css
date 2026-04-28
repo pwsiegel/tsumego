@@ -11,24 +11,24 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
   padding-bottom: 0.5rem;
 }
 
 .upload-header h1 {
   font-size: 1.1rem;
   margin: 0;
-  color: #222;
+  color: var(--text);
 }
 
 .upload-header nav a {
-  color: #666;
+  color: var(--text-muted);
   text-decoration: none;
   font-size: 0.85rem;
 }
 
 .upload-header nav a:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }
 
@@ -44,7 +44,7 @@
 .upload-btn-big {
   display: inline-block;
   padding: 0.9rem 2.2rem;
-  background: #1a66c8;
+  background: var(--accent);
   color: white;
   border-radius: 6px;
   cursor: pointer;
@@ -52,10 +52,10 @@
   user-select: none;
 }
 
-.upload-btn-big:hover { background: #1456ad; }
+.upload-btn-big:hover { background: var(--accent-hover); }
 
 .upload-hint {
-  color: #666;
+  color: var(--text-muted);
   max-width: 32rem;
   line-height: 1.4;
 }
@@ -63,7 +63,7 @@
 .ingest-progress {
   min-width: 26rem;
   max-width: 34rem;
-  color: #333;
+  color: var(--text-secondary);
 }
 
 .ingest-progress p {
@@ -71,12 +71,12 @@
 }
 
 .ingest-progress .dim {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.9rem;
 }
 
 .ingest-progress .dim a {
-  color: #1a66c8;
+  color: var(--accent);
 }
 
 .upload-progress {
@@ -87,7 +87,7 @@
 }
 
 .upload-error {
-  color: #c33;
+  color: var(--error-c33);
   text-align: center;
 }
 

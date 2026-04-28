@@ -3,7 +3,7 @@
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .home-header {
@@ -11,7 +11,7 @@
   justify-content: space-between;
   align-items: baseline;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
   margin-bottom: 2rem;
 }
 
@@ -22,19 +22,19 @@
 }
 
 .home-header nav .dim {
-  color: #888;
+  color: var(--text-faint);
   text-decoration: none;
   font-size: 0.85rem;
 }
 
 .home-header nav .dim:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }
 
 .home-section {
-  background: #fff;
-  border: 1px solid #e4e4e4;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 1.75rem;
   overflow: hidden;
@@ -46,14 +46,14 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.85rem 1.25rem;
-  background: #fafafa;
-  border-bottom: 1px solid #ececec;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--bg-soft);
 }
 
 .section-heading h2 {
   margin: 0;
   font-size: 0.85rem;
-  color: #555;
+  color: var(--text-tertiary);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -71,18 +71,18 @@
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 50%;
-  border: 1px solid #c8c8c8;
-  background: #fff;
-  color: #555;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-tertiary);
   cursor: pointer;
   padding: 0;
   text-decoration: none;
 }
 
 .section-add-btn:hover {
-  color: #1a66c8;
-  border-color: #1a66c8;
-  background: #eef4fc;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .teachers-list {
@@ -93,7 +93,7 @@
 
 .teacher-row {
   padding: 0.65rem 0;
-  border-bottom: 1px solid #ececec;
+  border-bottom: 1px solid var(--bg-soft);
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.5rem 0.75rem;
@@ -120,7 +120,7 @@
 
 .teacher-added {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-faint);
 }
 
 .teacher-row-actions {
@@ -131,20 +131,20 @@
 
 .teacher-link-btn {
   padding: 0.35rem 0.7rem;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   font-size: 0.85rem;
 }
 
-.teacher-link-btn:hover { background: #f4f4f4; }
+.teacher-link-btn:hover { background: var(--border-softer); }
 
 .teacher-remove-btn {
   padding: 0.2rem 0.55rem;
   border: 1px solid transparent;
   background: transparent;
-  color: #888;
+  color: var(--text-faint);
   font-size: 1.1rem;
   cursor: pointer;
   border-radius: 4px;
@@ -152,9 +152,9 @@
 }
 
 .teacher-remove-btn:hover {
-  color: #c33;
-  background: #fdf0f0;
-  border-color: #f0c0c0;
+  color: var(--error-c33);
+  background: var(--error-bg-soft);
+  border-color: var(--error-border);
 }
 
 .teacher-url-row {
@@ -170,25 +170,25 @@
   padding: 0.4rem 0.6rem;
   border: 1px solid #d0d0d0;
   border-radius: 4px;
-  background: #fafafa;
+  background: var(--bg-subtle);
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
-  color: #333;
+  color: var(--text-secondary);
   overflow-x: auto;
   white-space: nowrap;
 }
 
 .teacher-url-copy {
   padding: 0.4rem 0.8rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.85rem;
 }
 
-.teacher-url-copy:hover { background: #1456ad; }
+.teacher-url-copy:hover { background: var(--accent-hover); }
 
 .add-teacher {
   display: flex;
@@ -199,45 +199,45 @@
 .add-teacher input {
   flex: 1;
   padding: 0.5rem 0.7rem;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   font-size: 0.95rem;
 }
 
 .add-teacher button {
   padding: 0.5rem 1rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
 }
 
 .add-teacher .add-teacher-cancel {
-  background: #fff;
-  color: #444;
-  border-color: #c8c8c8;
+  background: var(--bg);
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
 }
 
 .add-teacher .add-teacher-cancel:hover:not(:disabled) {
-  background: #f4f4f4;
+  background: var(--border-softer);
 }
 
 .add-teacher button:disabled {
-  background: #c8c8c8;
-  border-color: #c8c8c8;
+  background: var(--border-strong);
+  border-color: var(--border-strong);
   cursor: not-allowed;
 }
 
 .teachers-note {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-faint);
   margin-top: 0.75rem;
 }
 
 .collections .dim {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.95rem;
 }
 
@@ -249,7 +249,7 @@
 
 .collection-item {
   padding: 0.85rem 0;
-  border-bottom: 1px solid #ececec;
+  border-bottom: 1px solid var(--bg-soft);
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -279,19 +279,19 @@
 
 .collection-meta {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-faint);
   margin-top: 0.15rem;
 }
 
 .collection-meta .dot {
   margin: 0 0.4rem;
-  color: #bbb;
+  color: var(--text-bbb);
 }
 
-.collection-meta .stat-unreviewed { color: #555; }
-.collection-meta .stat-accepted { color: #2a8f3f; }
-.collection-meta .stat-edited { color: #b88500; }
-.collection-meta .stat-rejected { color: #c03030; }
+.collection-meta .stat-unreviewed { color: var(--text-tertiary); }
+.collection-meta .stat-accepted { color: var(--success); }
+.collection-meta .stat-edited { color: var(--warning); }
+.collection-meta .stat-rejected { color: var(--error); }
 
 .collection-link {
   flex: 1;
@@ -312,7 +312,7 @@
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0.35rem;
-  color: #999;
+  color: var(--text-fainter);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -321,15 +321,15 @@
 }
 
 .collection-edit:hover {
-  color: #1a66c8;
-  background: #eef4fc;
-  border-color: #c7daf2;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .collection-delete:hover:enabled {
-  color: #c33;
-  background: #fdf0f0;
-  border-color: #f0c0c0;
+  color: var(--error-c33);
+  background: var(--error-bg-soft);
+  border-color: var(--error-border);
 }
 
 .collection-delete:disabled {
@@ -338,7 +338,7 @@
 }
 
 .error {
-  color: #c33;
+  color: var(--error-c33);
   font-size: 0.9rem;
 }
 
@@ -356,14 +356,14 @@
   align-items: center;
   gap: 0.85rem;
   padding: 0.65rem 0.85rem;
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
 }
 
 .job-card.state-active {
-  border-color: #d8e1ec;
-  background: #f7f9fc;
+  border-color: var(--accent-bg-stronger);
+  background: var(--bg-alt);
 }
 
 .job-card.state-stalled {
@@ -372,8 +372,8 @@
 }
 
 .job-card.state-error {
-  border-color: #f0c0c0;
-  background: #fdf0f0;
+  border-color: var(--error-border);
+  background: var(--error-bg-soft);
 }
 
 .job-card.state-done {
@@ -395,7 +395,7 @@
 
 .job-card-status {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
   margin-top: 0.1rem;
 }
 
@@ -415,33 +415,33 @@
 
 .job-link {
   padding: 0.35rem 0.7rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   font-size: 0.85rem;
   text-decoration: none;
 }
 
-.job-link:hover { background: #1456ad; }
+.job-link:hover { background: var(--accent-hover); }
 
 .job-restart {
   padding: 0.35rem 0.7rem;
-  border: 1px solid #c8c8c8;
-  background: #fff;
-  color: #333;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-secondary);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.85rem;
 }
 
-.job-restart:hover { background: #f4f4f4; }
+.job-restart:hover { background: var(--border-softer); }
 
 .job-dismiss {
   padding: 0.2rem 0.55rem;
   border: 1px solid transparent;
   background: transparent;
-  color: #888;
+  color: var(--text-faint);
   font-size: 1.1rem;
   cursor: pointer;
   border-radius: 4px;
@@ -449,13 +449,13 @@
 }
 
 .job-dismiss:hover {
-  color: #555;
-  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-tertiary);
+  background: var(--overlay-05);
 }
 
 .submissions-outbox {
-  border: 1px solid #d8e1ec;
-  background: #f7f9fc;
+  border: 1px solid var(--accent-bg-stronger);
+  background: var(--bg-alt);
   border-radius: 6px;
   padding: 0.85rem 1rem;
   margin-bottom: 0.85rem;
@@ -477,11 +477,11 @@
 }
 
 .submissions-outbox-summary:hover {
-  color: #1a66c8;
+  color: var(--accent);
 }
 
 .submissions-outbox-chevron {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.9rem;
 }
 
@@ -497,7 +497,7 @@
 .submissions-outbox-count {
   font-weight: 400;
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .submissions-outbox-grid {
@@ -510,8 +510,8 @@
 }
 
 .submissions-outbox-tile {
-  background: #fff;
-  border: 1px solid #e4e4e4;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
   display: flex;
@@ -519,13 +519,13 @@
 }
 
 .submissions-outbox-tile-board {
-  background: #f7f3e8;
+  background: var(--bg-board);
   padding: 0.3rem;
 }
 
 .submissions-outbox-tile-meta {
   padding: 0.35rem 0.5rem 0.45rem;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-soft);
   font-size: 0.78rem;
   display: flex;
   flex-direction: column;
@@ -534,7 +534,7 @@
 }
 
 .submissions-outbox-tile-source {
-  color: #444;
+  color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -542,12 +542,12 @@
 }
 
 .submissions-outbox-tile-idx {
-  color: #888;
+  color: var(--text-faint);
 }
 
 .submissions-outbox-tile-meta .dot {
   margin: 0 0.3rem;
-  color: #ccc;
+  color: var(--border-c);
 }
 
 .submissions-outbox-actions {
@@ -574,31 +574,31 @@
   align-items: center;
   gap: 0.3rem;
   padding: 0.25rem 0.55rem;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   font-size: 0.88rem;
 }
 
 .submissions-outbox-radio:has(input:checked) {
-  border-color: #1a66c8;
-  background: #eef4fc;
+  border-color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .submissions-submit-btn {
   padding: 0.5rem 1rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.92rem;
 }
 
 .submissions-submit-btn:disabled {
-  background: #c8c8c8;
-  border-color: #c8c8c8;
+  background: var(--border-strong);
+  border-color: var(--border-strong);
   cursor: not-allowed;
 }
 
@@ -611,8 +611,8 @@
 .submissions-flash {
   margin: 0.5rem 0 0;
   padding: 0.5rem 0.7rem;
-  background: #ecf6e8;
-  color: #2a6a16;
+  background: var(--success-bg);
+  color: var(--success-strong);
   border-radius: 4px;
   font-size: 0.9rem;
 }
@@ -632,15 +632,15 @@
   align-items: center;
   gap: 1rem;
   padding: 0.55rem 0.85rem;
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   text-decoration: none;
   color: inherit;
 }
 
 .submissions-row-link:hover {
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .submissions-row-main {
@@ -662,12 +662,12 @@
 
 .submissions-state.state-pending {
   background: #f0eee5;
-  color: #6a5a14;
+  color: var(--warning-mid);
 }
 
 .submissions-state.state-returned {
   background: #e6f1da;
-  color: #2a6a16;
+  color: var(--success-strong);
 }
 
 .submissions-row-teacher {
@@ -675,12 +675,12 @@
 }
 
 .submissions-row-when {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.85rem;
 }
 
 .submissions-row-meta {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.85rem;
   flex-shrink: 0;
 }
@@ -692,7 +692,7 @@
 }
 
 .submissions-history-link {
-  color: #1a66c8;
+  color: var(--accent);
   text-decoration: none;
   font-size: 0.9rem;
 }

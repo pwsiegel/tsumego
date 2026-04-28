@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { ThemeToggle } from './ThemeToggle';
 import { BboxTest } from './BboxTest';
 import { BoardParsing } from './BoardParsing';
 import { Collection } from './Collection';
@@ -29,7 +30,7 @@ function TsumegoPlaceholder() {
   return (
     <div style={{ maxWidth: '36rem', margin: '4rem auto', padding: '0 1.5rem' }}>
       <h1>Tsumego library</h1>
-      <p style={{ color: '#666' }}>Coming soon.</p>
+      <p style={{ color: 'var(--text-muted)' }}>Coming soon.</p>
     </div>
   );
 }
@@ -37,6 +38,7 @@ function TsumegoPlaceholder() {
 function App() {
   return (
     <HealthGate>
+      <ThemeToggle />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/upload" element={<Upload />} />

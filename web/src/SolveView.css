@@ -18,7 +18,7 @@
 }
 
 .solve-counter {
-  color: #888;
+  color: var(--text-faint);
   font-weight: normal;
   font-size: 1rem;
 }
@@ -31,19 +31,19 @@
 
 .solve-nav button {
   padding: 0.4rem 0.8rem;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   font-size: 0.95rem;
 }
 
 .solve-nav button:hover:not(:disabled) {
-  background: #f4f4f4;
+  background: var(--border-softer);
 }
 
 .solve-nav button:disabled {
-  color: #bbb;
+  color: var(--text-bbb);
   cursor: default;
 }
 
@@ -52,19 +52,19 @@
 }
 
 .solve-nav .solve-save-continue {
-  background: #2563eb;
-  color: #fff;
-  border-color: #1d4ed8;
+  background: var(--indigo);
+  color: var(--bg);
+  border-color: var(--indigo-strong);
 }
 
 .solve-nav .solve-save-continue:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--indigo-strong);
 }
 
 .solve-nav .solve-save-continue:disabled {
-  background: #93c5fd;
-  border-color: #93c5fd;
-  color: #fff;
+  background: var(--indigo-soft);
+  border-color: var(--indigo-soft);
+  color: var(--bg);
 }
 
 .solve-header .back-link {
@@ -105,7 +105,7 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   margin: 0.75rem 0;
-  color: #555;
+  color: var(--text-tertiary);
   font-size: 0.95rem;
 }
 
@@ -117,45 +117,45 @@
 
 .solve-actions button {
   padding: 0.5rem 1rem;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   font-size: 0.95rem;
 }
 
 .solve-actions button:hover:not(:disabled) {
-  background: #f4f4f4;
+  background: var(--border-softer);
 }
 
 .solve-actions button:disabled {
-  color: #aaa;
+  color: var(--text-dim);
   cursor: default;
 }
 
 .solve-actions .submit {
-  background: #2563eb;
-  color: #fff;
-  border-color: #1d4ed8;
+  background: var(--indigo);
+  color: var(--bg);
+  border-color: var(--indigo-strong);
 }
 
 .solve-actions .submit:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--indigo-strong);
 }
 
 .solve-actions .submit:disabled {
-  background: #93c5fd;
-  border-color: #93c5fd;
-  color: #fff;
+  background: var(--indigo-soft);
+  border-color: var(--indigo-soft);
+  color: var(--bg);
 }
 
 .solve-chains {
   flex: 0 0 12rem;
-  background: #faf6ec;
-  border: 1px solid #e8dcb8;
+  background: var(--warning-bg-soft);
+  border: 1px solid var(--warning-line2);
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
-  color: #4a3a14;
+  color: var(--warning-x);
 }
 
 .solve-chains-title {
@@ -163,7 +163,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #8a7530;
+  color: var(--warning-mid2);
   margin-bottom: 0.5rem;
 }
 
@@ -189,28 +189,28 @@
   min-width: 1.6rem;
   padding: 0.1rem 0.4rem;
   text-align: center;
-  background: #fff;
-  border: 1px solid #e0d199;
+  background: var(--bg);
+  border: 1px solid var(--warning-line);
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #4a3a14;
+  color: var(--warning-x);
 }
 
 .chain-sep {
-  color: #b89a4a;
+  color: var(--warning-soft);
   font-weight: 600;
 }
 
 .solve-original {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid #e6e6e6;
+  border-top: 1px solid var(--border-e6);
 }
 
 .solve-original > summary {
   cursor: pointer;
-  color: #555;
+  color: var(--text-tertiary);
   font-size: 0.95rem;
   list-style: none;
 }
@@ -219,24 +219,24 @@
 
 .solve-original > summary::before {
   content: '▸ ';
-  color: #888;
+  color: var(--text-faint);
 }
 
 .solve-original[open] > summary::before {
   content: '▾ ';
 }
 
-.solve-original > summary:hover { color: #222; }
+.solve-original > summary:hover { color: var(--text); }
 
 .solve-history {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid #e6e6e6;
+  border-top: 1px solid var(--border-e6);
 }
 
 .solve-history > summary {
   cursor: pointer;
-  color: #555;
+  color: var(--text-tertiary);
   font-size: 0.95rem;
   list-style: none;
 }
@@ -245,14 +245,14 @@
 
 .solve-history > summary::before {
   content: '▸ ';
-  color: #888;
+  color: var(--text-faint);
 }
 
 .solve-history[open] > summary::before {
   content: '▾ ';
 }
 
-.solve-history > summary:hover { color: #222; }
+.solve-history > summary:hover { color: var(--text); }
 
 .solve-history-list {
   list-style: none;
@@ -267,14 +267,14 @@
   display: grid;
   grid-template-columns: 9rem 1fr;
   gap: 1rem;
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   padding: 0.55rem 0.75rem;
 }
 
 .solve-history-board {
-  background: #f7f3e8;
+  background: var(--bg-board);
   border-radius: 4px;
   padding: 0.3rem;
 }
@@ -287,13 +287,13 @@
 }
 
 .solve-history-stamp {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
 .solve-history-stamp .dot {
   margin: 0 0.35rem;
-  color: #ccc;
+  color: var(--border-c);
 }
 
 .solve-history-verdicts {
@@ -316,13 +316,13 @@
 }
 
 .solve-history-verdict.v-correct {
-  background: #ecf6e8;
-  color: #2a6a16;
+  background: var(--success-bg);
+  color: var(--success-strong);
 }
 
 .solve-history-verdict.v-incorrect {
-  background: #fdecec;
-  color: #a02020;
+  background: var(--error-bg);
+  color: var(--error-strong);
 }
 
 .solve-history-mark {
@@ -334,7 +334,7 @@
 }
 
 .solve-history-when {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.78rem;
 }
 
@@ -342,21 +342,21 @@
   display: block;
   margin: 0.75rem 0 0;
   max-width: 100%;
-  border: 1px solid #ddd;
+  border: 1px solid var(--text-ddd);
   border-radius: 4px;
 }
 
 .solve-error {
-  background: #fdecec;
-  color: #a02020;
+  background: var(--error-bg);
+  color: var(--error-strong);
   padding: 0.6rem 0.8rem;
   border-radius: 6px;
   margin-top: 0.5rem;
 }
 
 .solve-flash {
-  background: #ecf6e8;
-  color: #2a6a16;
+  background: var(--success-bg);
+  color: var(--success-strong);
   padding: 0.6rem 0.8rem;
   border-radius: 6px;
   margin-top: 0.5rem;
@@ -364,7 +364,7 @@
 
 .solve-meta {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-faint);
 }
 
 /* --- thumbnail picker --- */
@@ -374,25 +374,25 @@
   margin: 0 auto;
   padding: 1.25rem 1.5rem 3rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .solve-picker-header {
   margin-bottom: 1.25rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
 }
 
 .solve-picker-header .back-link {
   display: inline-block;
-  color: #888;
+  color: var(--text-faint);
   text-decoration: none;
   font-size: 0.85rem;
   margin-bottom: 0.25rem;
 }
 
 .solve-picker-header .back-link:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }
 
@@ -403,7 +403,7 @@
 
 .solve-picker-meta {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .solve-picker-grid {
@@ -416,9 +416,9 @@
 }
 
 .solve-picker-tile {
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -429,12 +429,12 @@
 }
 
 .solve-picker-tile a:hover {
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .solve-picker-thumb {
   position: relative;
-  background: #f7f3e8;
+  background: var(--bg-board);
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
@@ -454,27 +454,27 @@
   justify-content: center;
   font-size: 0.85rem;
   font-weight: 600;
-  background: #fff;
-  border: 1px solid #c8c8c8;
-  color: #888;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text-faint);
+  box-shadow: 0 1px 2px var(--overlay-08);
 }
 
 .solve-picker-badge.badge-correct {
-  background: #ecf6e8;
+  background: var(--success-bg);
   border-color: #b1d7a3;
-  color: #2a6a16;
+  color: var(--success-strong);
 }
 
 .solve-picker-badge.badge-incorrect {
-  background: #fdecec;
+  background: var(--error-bg);
   border-color: #e2a3a3;
-  color: #a02020;
+  color: var(--error-strong);
 }
 
 .solve-picker-badge.badge-pending {
-  background: #f5f5f5;
-  color: #888;
+  background: var(--bg-muted);
+  color: var(--text-faint);
 }
 
 .solve-picker-actions {
@@ -486,18 +486,18 @@
 
 .solve-picker-actions button {
   padding: 0.4rem 0.85rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
 }
 
 .solve-picker-actions button:disabled {
-  background: #d8d8d8;
-  border-color: #d8d8d8;
-  color: #fff;
+  background: var(--border-d8);
+  border-color: var(--border-d8);
+  color: var(--bg);
   cursor: not-allowed;
 }
 
@@ -512,24 +512,24 @@
 
 .solve-picker-pager button {
   padding: 0.35rem 0.8rem;
-  border: 1px solid #c8c8c8;
-  background: #fff;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
 }
 
 .solve-picker-pager button:hover:not(:disabled) {
-  background: #f4f4f4;
+  background: var(--border-softer);
 }
 
 .solve-picker-pager button:disabled {
-  color: #bbb;
+  color: var(--text-bbb);
   cursor: default;
 }
 
 .solve-picker-page-num {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .solve-picker-thumb img {
@@ -539,13 +539,13 @@
 }
 
 .solve-picker-noimg {
-  color: #aaa;
+  color: var(--text-dim);
   font-size: 0.8rem;
 }
 
 .solve-picker-caption {
   padding: 0.4rem 0.6rem;
   font-size: 0.85rem;
-  color: #444;
-  border-top: 1px solid #eee;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-soft);
 }

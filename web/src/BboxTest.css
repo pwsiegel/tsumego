@@ -19,13 +19,13 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.4rem 0.8rem;
-  border: 1px solid #888;
+  border: 1px solid var(--text-faint);
   border-radius: 4px;
   cursor: pointer;
   background: #f7f7f7;
 }
 .upload-btn:hover {
-  background: #ececec;
+  background: var(--bg-soft);
 }
 
 .algorithm-picker {
@@ -40,7 +40,7 @@
 .bbox-status {
   flex: 1;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .bbox-actions {
@@ -54,7 +54,7 @@
 
 .bbox-message {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .bbox-stage {

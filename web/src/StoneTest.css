@@ -19,7 +19,7 @@
   flex-direction: column;
   gap: 0.2rem;
   font-size: 0.8rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 .peak-slider input[type="range"] {
   width: 10rem;
@@ -28,7 +28,7 @@
 .stone-status {
   flex: 1;
   font-size: 0.9rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .stone-actions {
@@ -42,7 +42,7 @@
 
 .stone-message {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .stone-stage {

@@ -3,7 +3,7 @@
   margin: 3rem auto;
   padding: 0 1.5rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .testing-index h1 {
@@ -11,7 +11,7 @@
 }
 
 .testing-index .intro {
-  color: #666;
+  color: var(--text-muted);
   margin-top: 0;
 }
 
@@ -23,17 +23,17 @@
 
 .testing-links li {
   padding: 0.75rem 0;
-  border-top: 1px solid #e4e4e4;
+  border-top: 1px solid var(--border);
 }
 
 .testing-links li:last-child {
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
 }
 
 .testing-links a {
   display: inline-block;
   font-size: 1.05rem;
-  color: #1a66c8;
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -43,7 +43,7 @@
 
 .testing-links .desc {
   display: block;
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin-top: 0.25rem;
 }
@@ -54,11 +54,11 @@
 }
 
 .home-link a {
-  color: #666;
+  color: var(--text-muted);
   text-decoration: none;
 }
 
 .home-link a:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }

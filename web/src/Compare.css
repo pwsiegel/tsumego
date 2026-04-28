@@ -2,14 +2,14 @@
   max-width: 100vw;
   padding: 1rem 1.5rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .compare-msg {
   max-width: 32rem;
   margin: 4rem auto;
   padding: 0 1.5rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .compare-header {
@@ -19,7 +19,7 @@
   gap: 1rem;
   margin-bottom: 0.5rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
 }
 
 .compare-header h1 {
@@ -28,23 +28,23 @@
 }
 
 .compare-header .back {
-  color: #888;
+  color: var(--text-faint);
   text-decoration: none;
   font-size: 0.85rem;
 }
 .compare-header .back:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }
 
 .compare-sub {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
 .compare-sub code {
   font-size: 0.85em;
-  background: #f5f5f5;
+  background: var(--bg-muted);
   padding: 0.05em 0.3em;
   border-radius: 3px;
 }
@@ -58,7 +58,7 @@
 .compare-nav button {
   padding: 0.4rem 0.8rem;
   font-size: 1rem;
-  border: 1px solid #aaa;
+  border: 1px solid var(--text-dim);
   background: white;
   border-radius: 4px;
   cursor: pointer;
@@ -71,7 +71,7 @@
 
 .compare-idx {
   font-family: ui-monospace, monospace;
-  color: #555;
+  color: var(--text-tertiary);
   min-width: 4rem;
   text-align: center;
 }
@@ -109,28 +109,28 @@
 .compare-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #555;
+  color: var(--text-tertiary);
   padding: 0.3rem 0.5rem;
-  background: #f5f5f5;
+  background: var(--bg-muted);
   border-radius: 4px;
   text-align: center;
 }
 
 .compare-label.match {
   background: #e6f4e9;
-  color: #2a8f3f;
+  color: var(--success);
 }
 .compare-label.diff {
-  background: #fdecec;
-  color: #c03030;
+  background: var(--error-bg);
+  color: var(--error);
 }
 .compare-label.gt {
   background: #eef4fd;
-  color: #1a66c8;
+  color: var(--accent);
 }
 .compare-label.gt.dirty {
-  background: #fdf3e0;
-  color: #a35c00;
+  background: var(--warning-bg);
+  color: var(--warning-strong);
 }
 
 .gt-actions {
@@ -144,7 +144,7 @@
   padding: 0.4rem 0.9rem;
   font-size: 0.85rem;
   border-radius: 4px;
-  border: 1px solid #bbb;
+  border: 1px solid var(--text-bbb);
   cursor: pointer;
   background: white;
 }
@@ -155,20 +155,20 @@
 }
 
 .gt-actions .gt-save {
-  background: #1a66c8;
+  background: var(--accent);
   color: white;
-  border-color: #1a66c8;
+  border-color: var(--accent);
 }
-.gt-actions .gt-save:hover:enabled { background: #1456ad; }
+.gt-actions .gt-save:hover:enabled { background: var(--accent-hover); }
 
-.gt-actions .gt-reset:hover:enabled { background: #f5f5f5; }
+.gt-actions .gt-reset:hover:enabled { background: var(--bg-muted); }
 
 .compare-crop {
   width: 100%;
   height: auto;
   max-height: 60vh;
   object-fit: contain;
-  background: #f7f3e8;
+  background: var(--bg-board);
   display: block;
 }
 
@@ -182,9 +182,9 @@
 .compare-diff-list {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fafafa;
+  background: var(--bg-subtle);
   font-size: 0.9rem;
 }
 
@@ -195,7 +195,7 @@
 .compare-diff-list code {
   background: white;
   padding: 0.1em 0.4em;
-  border: 1px solid #ddd;
+  border: 1px solid var(--text-ddd);
   border-radius: 3px;
   font-size: 0.85em;
 }

@@ -7,16 +7,16 @@
 }
 
 .board-bg {
-  fill: #e6b871;
+  fill: var(--warning-amber);
 }
 
 .grid-line {
-  stroke: #2b1d10;
+  stroke: var(--warning-deep);
   stroke-width: 1;
 }
 
 .star-point {
-  fill: #2b1d10;
+  fill: var(--warning-deep);
 }
 
 .coord-label text {
@@ -27,28 +27,28 @@
 }
 
 .stone-black {
-  fill: #111;
-  stroke: #000;
+  fill: var(--text);
+  stroke: var(--text);
   stroke-width: 0.5;
   pointer-events: none;  /* let clicks pass through to the hit rect below */
 }
 
 .stone-white {
-  fill: #fafafa;
-  stroke: #222;
+  fill: var(--bg-subtle);
+  stroke: var(--text);
   stroke-width: 1;
   pointer-events: none;
 }
 
 .label-on-black {
-  fill: #fff;
+  fill: var(--bg);
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
 }
 
 .label-on-white {
-  fill: #111;
+  fill: var(--text);
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
@@ -58,12 +58,12 @@
  * masks the grid line crossing under the number, with the same dark
  * text used elsewhere on board. */
 .move-number-halo {
-  fill: #e6b871;
+  fill: var(--warning-amber);
   pointer-events: none;
 }
 
 .move-number-empty {
-  fill: #2b1d10;
+  fill: var(--warning-deep);
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
@@ -75,7 +75,7 @@
 }
 
 .hit:hover {
-  fill: rgba(0, 0, 0, 0.08);
+  fill: var(--overlay-08);
 }
 
 .board.display-only .hit { cursor: default; }

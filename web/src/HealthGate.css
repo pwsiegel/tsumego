@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .health-card {
@@ -19,7 +19,7 @@
 }
 
 .health-detail {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -28,15 +28,15 @@
   width: 2.5rem;
   height: 2.5rem;
   margin: 0 auto;
-  border: 3px solid #e0e0e0;
-  border-top-color: #555;
+  border: 3px solid var(--border-e0);
+  border-top-color: var(--text-tertiary);
   border-radius: 50%;
   animation: health-spin 0.9s linear infinite;
 }
 
 .health-spinner.degraded {
   animation: none;
-  border: 3px solid #c62828;
+  border: 3px solid var(--error-emph);
   border-radius: 4px;
 }
 

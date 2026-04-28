@@ -3,25 +3,25 @@
   margin: 0 auto;
   padding: 1.5rem 1.5rem 4rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .reviewed-header {
   margin-bottom: 1.25rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid #e4e4e4;
+  border-bottom: 1px solid var(--border);
 }
 
 .reviewed-header .back-link {
   display: inline-block;
-  color: #888;
+  color: var(--text-faint);
   text-decoration: none;
   font-size: 0.85rem;
   margin-bottom: 0.25rem;
 }
 
 .reviewed-header .back-link:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }
 
@@ -32,37 +32,37 @@
 
 .reviewed-meta {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .reviewed-toggle {
   margin-top: 0.5rem;
   display: inline-flex;
-  border: 1px solid #c8c8c8;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .reviewed-toggle-btn {
-  background: #fff;
+  background: var(--bg);
   border: none;
   padding: 0.35rem 0.8rem;
   cursor: pointer;
   font-size: 0.85rem;
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .reviewed-toggle-btn + .reviewed-toggle-btn {
-  border-left: 1px solid #c8c8c8;
+  border-left: 1px solid var(--border-strong);
 }
 
 .reviewed-toggle-btn:hover {
-  background: #f4f4f4;
+  background: var(--border-softer);
 }
 
 .reviewed-toggle-btn.active {
-  background: #1a66c8;
-  color: #fff;
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .reviewed-groups {
@@ -78,21 +78,21 @@
   gap: 0.75rem;
   margin: 0 0 0.5rem;
   padding-bottom: 0.35rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-soft);
   font-size: 1rem;
   font-weight: 500;
-  color: #333;
+  color: var(--text-secondary);
 }
 
 .reviewed-group-count {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-faint);
   font-weight: 400;
 }
 
 .reviewed-error {
-  background: #fdecec;
-  color: #a02020;
+  background: var(--error-bg);
+  color: var(--error-strong);
   padding: 0.6rem 0.8rem;
   border-radius: 6px;
   margin: 0.5rem 0 1rem;
@@ -108,9 +108,9 @@
 }
 
 .reviewed-row {
-  border: 1px solid #e4e4e4;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -124,11 +124,11 @@
 }
 
 .reviewed-row-link:hover {
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .reviewed-row-board {
-  background: #f7f3e8;
+  background: var(--bg-board);
   border-radius: 4px;
   padding: 0.35rem;
 }
@@ -142,7 +142,7 @@
 
 .reviewed-row-source {
   font-size: 0.95rem;
-  color: #333;
+  color: var(--text-secondary);
 }
 
 .reviewed-row-collection {
@@ -152,11 +152,11 @@
 .reviewed-row-source .dot,
 .reviewed-row-stamp .dot {
   margin: 0 0.35rem;
-  color: #ccc;
+  color: var(--border-c);
 }
 
 .reviewed-row-stamp {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.8rem;
 }
 
@@ -180,18 +180,18 @@
 }
 
 .reviewed-verdict.v-correct {
-  background: #ecf6e8;
-  color: #2a6a16;
+  background: var(--success-bg);
+  color: var(--success-strong);
 }
 
 .reviewed-verdict.v-incorrect {
-  background: #fdecec;
-  color: #a02020;
+  background: var(--error-bg);
+  color: var(--error-strong);
 }
 
 .reviewed-verdict.v-pending {
   background: #f3f1ea;
-  color: #6a5a14;
+  color: var(--warning-mid);
 }
 
 .submission-actions {
@@ -200,17 +200,17 @@
 
 .submission-ack-btn {
   padding: 0.5rem 1.1rem;
-  border: 1px solid #1a66c8;
-  background: #1a66c8;
-  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.95rem;
 }
 
 .submission-ack-btn:disabled {
-  background: #c8c8c8;
-  border-color: #c8c8c8;
+  background: var(--border-strong);
+  border-color: var(--border-strong);
   cursor: not-allowed;
 }
 
@@ -223,10 +223,10 @@
 }
 
 .reviewed-verdict-when {
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.78rem;
 }
 
 .dim {
-  color: #888;
+  color: var(--text-faint);
 }

@@ -3,7 +3,7 @@
   margin: 2rem auto;
   padding: 0 1.5rem;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #222;
+  color: var(--text);
 }
 
 .validate h1 {
@@ -12,12 +12,12 @@
 
 .validate .loading,
 .validate .error {
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
 }
 
 .validate .error {
-  color: #c62828;
+  color: var(--error-emph);
 }
 
 .progress-wrap {
@@ -27,26 +27,26 @@
 
 .progress-label {
   font-size: 0.95rem;
-  color: #444;
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
 
 .progress-track {
   width: 100%;
   height: 14px;
-  background: #eaeaea;
+  background: var(--border-ea);
   border-radius: 7px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: #1a66c8;
+  background: var(--accent);
   transition: width 120ms linear;
 }
 
 .validate .all-good {
-  color: #2e7d32;
+  color: var(--success-emph);
   font-size: 1.1rem;
   margin-top: 1.5rem;
 }
@@ -59,7 +59,7 @@
   padding: 1rem 1.5rem;
   background: #f8f8f8;
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-e0);
 }
 
 .stat {
@@ -76,14 +76,14 @@
 
 .stat .label {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
   margin-top: 0.25rem;
 }
 
-.stat.exact .num { color: #2e7d32; }
-.stat.changed .num { color: #e65100; }
-.stat.errors .num { color: #c62828; }
-.stat.total .num { color: #333; }
+.stat.exact .num { color: var(--success-emph); }
+.stat.changed .num { color: var(--warning-emph); }
+.stat.errors .num { color: var(--error-emph); }
+.stat.total .num { color: var(--text-secondary); }
 
 /* Filter bar */
 .filter-bar {
@@ -92,14 +92,14 @@
   gap: 0.5rem;
   margin-bottom: 1rem;
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .filter-bar button {
   padding: 0.3rem 0.7rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border-c);
   border-radius: 4px;
-  background: #fff;
+  background: var(--bg);
   cursor: pointer;
   font-size: 0.85rem;
 }
@@ -109,18 +109,18 @@
 }
 
 .filter-bar button.active {
-  background: #1a66c8;
-  color: #fff;
-  border-color: #1a66c8;
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }
 
 /* Problem list */
 .problem-list {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--border-e0);
 }
 
 .problem-row {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--border-e0);
 }
 
 .problem-header {
@@ -133,7 +133,7 @@
 }
 
 .problem-header:hover {
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .badge {
@@ -147,12 +147,12 @@
 
 .badge.changed {
   background: #fff3e0;
-  color: #e65100;
+  color: var(--warning-emph);
 }
 
 .badge.error {
   background: #ffebee;
-  color: #c62828;
+  color: var(--error-emph);
 }
 
 .stem {
@@ -166,31 +166,31 @@
   font-size: 0.8rem;
 }
 
-.diff-summary .missed { color: #c62828; }
+.diff-summary .missed { color: var(--error-emph); }
 .diff-summary .extra { color: #1565c0; }
-.diff-summary .flipped { color: #e65100; }
+.diff-summary .flipped { color: var(--warning-emph); }
 
 .error-msg {
-  color: #c62828;
+  color: var(--error-emph);
   font-size: 0.85rem;
 }
 
 .expand-icon {
   margin-left: auto;
-  color: #999;
+  color: var(--text-fainter);
   font-size: 0.7rem;
 }
 
 .empty {
   padding: 1rem 0;
-  color: #999;
+  color: var(--text-fainter);
   font-style: italic;
 }
 
 /* Detail view */
 .problem-detail {
   padding: 1rem 0.25rem 1.5rem;
-  border-top: 1px dashed #ddd;
+  border-top: 1px dashed var(--text-ddd);
 }
 
 .detail-boards {
@@ -212,7 +212,7 @@
 
 .detail-label {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
   margin-bottom: 0.4rem;
   font-weight: 600;
 }
@@ -233,7 +233,7 @@
 .crop-image {
   width: 100%;
   max-width: 400px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--text-ddd);
   border-radius: 4px;
 }
 
@@ -253,9 +253,9 @@
   margin-right: 0.5rem;
 }
 
-.diff-label.missed { color: #c62828; }
+.diff-label.missed { color: var(--error-emph); }
 .diff-label.extra { color: #1565c0; }
-.diff-label.flipped { color: #e65100; }
+.diff-label.flipped { color: var(--warning-emph); }
 
 .diff-cell {
   margin-right: 0.5rem;
@@ -268,11 +268,11 @@
 }
 
 .back-link a {
-  color: #666;
+  color: var(--text-muted);
   text-decoration: none;
 }
 
 .back-link a:hover {
-  color: #222;
+  color: var(--text);
   text-decoration: underline;
 }

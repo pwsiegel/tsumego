@@ -1,0 +1,170 @@
+/* Semantic color tokens. Add light defaults on :root, dark overrides on
+ * [data-theme="dark"]. The toggle in App.tsx flips that attribute and
+ * persists the choice in localStorage. */
+
+:root {
+  /* Surfaces */
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --bg-muted: #f5f5f5;
+  --bg-alt: #f7f9fc;
+  --bg-soft: #ececec;
+  --bg-board: #f7f3e8;
+
+  /* Text */
+  --text: #222222;
+  --text-secondary: #444444;
+  --text-tertiary: #555555;
+  --text-muted: #666666;
+  --text-faint: #888888;
+  --text-dim: #aaaaaa;
+  --text-fainter: #999999;
+  --text-bbb: #bbbbbb;
+  --text-777: #777777;
+  --text-ddd: #dddddd;
+
+  /* Borders */
+  --border: #e4e4e4;
+  --border-soft: #eeeeee;
+  --border-softer: #f4f4f4;
+  --border-strong: #c8c8c8;
+  --border-stronger: #bbbbbb;
+  --border-c: #cccccc;
+  --border-e0: #e0e0e0;
+  --border-e6: #e6e6e6;
+  --border-d8: #d8d8d8;
+  --border-ea: #eaeaea;
+
+  /* Accent (blue) */
+  --accent: #1a66c8;
+  --accent-hover: #1456ad;
+  --accent-bg: #eef4fc;
+  --accent-border: #c7daf2;
+  --accent-bg-stronger: #d8e1ec;
+  --accent-blue-soft: #f7f9fc;
+
+  /* Success (green) */
+  --success: #2a8f3f;
+  --success-strong: #2a6a16;
+  --success-emph: #2e7d32;
+  --success-bg: #ecf6e8;
+
+  /* Error (red) */
+  --error: #c03030;
+  --error-strong: #a02020;
+  --error-emph: #c62828;
+  --error-c33: #cc3333;
+  --error-a33: #aa3333;
+  --error-bg: #fdecec;
+  --error-bg-soft: #fdf0f0;
+  --error-border: #f0c0c0;
+
+  /* Warning (amber) */
+  --warning: #b88500;
+  --warning-strong: #a35c00;
+  --warning-emph: #e65100;
+  --warning-bg: #fdf3e0;
+  --warning-bg-soft: #faf6ec;
+  --warning-soft: #b89a4a;
+  --warning-x: #4a3a14;
+  --warning-deep: #2b1d10;
+  --warning-line: #e0d199;
+  --warning-line2: #e8dcb8;
+  --warning-amber: #e6b871;
+  --warning-mid: #6a5a14;
+  --warning-mid2: #8a7530;
+
+  /* Indigo / link variants */
+  --indigo: #2563eb;
+  --indigo-strong: #1d4ed8;
+  --indigo-soft: #93c5fd;
+
+  /* Shadow / overlay */
+  --overlay-05: rgba(0, 0, 0, 0.05);
+  --overlay-08: rgba(0, 0, 0, 0.08);
+  --overlay-15: rgba(0, 0, 0, 0.15);
+  --surface-translucent: rgba(255, 255, 255, 0.78);
+  --surface-overlay: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="dark"] {
+  --bg: #181a1d;
+  --bg-subtle: #1f2125;
+  --bg-muted: #24272c;
+  --bg-alt: #1f242d;
+  --bg-soft: #2a2d33;
+  --bg-board: #2a2620;
+
+  --text: #e6e6e6;
+  --text-secondary: #cfcfcf;
+  --text-tertiary: #b8b8b8;
+  --text-muted: #a0a0a0;
+  --text-faint: #888888;
+  --text-dim: #6b6b6b;
+  --text-fainter: #7a7a7a;
+  --text-bbb: #5a5a5a;
+  --text-777: #909090;
+  --text-ddd: #404040;
+
+  --border: #2f3237;
+  --border-soft: #25272b;
+  --border-softer: #1e2024;
+  --border-strong: #3c3f44;
+  --border-stronger: #4a4d52;
+  --border-c: #3a3d42;
+  --border-e0: #303338;
+  --border-e6: #2c2f34;
+  --border-d8: #34373c;
+  --border-ea: #2a2c30;
+
+  --accent: #5b9bdc;
+  --accent-hover: #7eb6e6;
+  --accent-bg: #1e2d44;
+  --accent-border: #2d4566;
+  --accent-bg-stronger: #25334a;
+  --accent-blue-soft: #1d242e;
+
+  --success: #4caf50;
+  --success-strong: #81c784;
+  --success-emph: #66bb6a;
+  --success-bg: #1d2b1f;
+
+  --error: #e57373;
+  --error-strong: #ef9a9a;
+  --error-emph: #f48f8f;
+  --error-c33: #e57373;
+  --error-a33: #c46262;
+  --error-bg: #2c1d1d;
+  --error-bg-soft: #261919;
+  --error-border: #5c2828;
+
+  --warning: #ffb74d;
+  --warning-strong: #ffcc80;
+  --warning-emph: #ffa726;
+  --warning-bg: #2c241a;
+  --warning-bg-soft: #251f17;
+  --warning-soft: #b89a4a;
+  --warning-x: #d8c590;
+  --warning-deep: #f3e6c9;
+  --warning-line: #6a5a3a;
+  --warning-line2: #5a4f33;
+  --warning-amber: #d8a06a;
+  --warning-mid: #c8b478;
+  --warning-mid2: #b8a268;
+
+  --indigo: #6b8af0;
+  --indigo-strong: #93a9f5;
+  --indigo-soft: #2a3a6a;
+
+  --overlay-05: rgba(0, 0, 0, 0.3);
+  --overlay-08: rgba(0, 0, 0, 0.45);
+  --overlay-15: rgba(0, 0, 0, 0.6);
+  --surface-translucent: rgba(35, 38, 42, 0.78);
+  --surface-overlay: rgba(35, 38, 42, 0.95);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  color-scheme: light dark;
+}
