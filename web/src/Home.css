@@ -521,12 +521,39 @@
 }
 
 .submissions-outbox-tile {
+  position: relative;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.submissions-outbox-tile-remove {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 1;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-fainter);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.submissions-outbox-tile-remove:hover {
+  color: var(--error-c33);
+  background: var(--error-bg-soft);
+  border-color: var(--error-border);
 }
 
 .submissions-outbox-tile-board {

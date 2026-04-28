@@ -150,6 +150,16 @@ export function Home() {
     });
   }, [teachers]);
 
+  const removeFromBatch = async (problem_id: string) => {
+    try {
+      await api.study.removeFromBatch(problem_id);
+      const items = await api.study.getBatch();
+      setBatchItems(items);
+    } catch (e) {
+      setError(`Couldn't remove: ${e}`);
+    }
+  };
+
   const submitBatch = async () => {
     if (!pickedTeacher || !batchItems || batchItems.length === 0) return;
     setSending(true);
@@ -388,7 +398,11 @@ export function Home() {
             {outboxExpanded && (
               <ul id="submissions-outbox-grid" className="submissions-outbox-grid">
                 {batchItems.map((it) => (
-                  <SubmissionPreviewTile key={it.attempt.id} item={it} />
+                  <SubmissionPreviewTile
+                    key={it.attempt.id}
+                    item={it}
+                    onRemove={() => removeFromBatch(it.problem.id)}
+                  />
                 ))}
               </ul>
             )}
@@ -421,7 +435,12 @@ export function Home() {
   );
 }
 
-function SubmissionPreviewTile({ item }: { item: AttemptWithProblem }) {
+function SubmissionPreviewTile({
+  item, onRemove,
+}: {
+  item: AttemptWithProblem;
+  onRemove: () => void;
+}) {
   const stones: Stone[] = (item.problem.stones ?? []).map((s) => ({
     x: s.col, y: s.row, color: s.color as 'B' | 'W',
   }));
@@ -431,6 +450,15 @@ function SubmissionPreviewTile({ item }: { item: AttemptWithProblem }) {
   const viewport = boundingViewport(allPts);
   return (
     <li className="submissions-outbox-tile">
+      <button
+        type="button"
+        className="submissions-outbox-tile-remove"
+        onClick={onRemove}
+        aria-label="Remove from submission"
+        title="Remove from submission"
+      >
+        ×
+      </button>
       <div className="submissions-outbox-tile-board">
         <Board
           stones={stones}

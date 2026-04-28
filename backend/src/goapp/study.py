@@ -138,6 +138,20 @@ def list_unsent(user_id: str) -> list[dict]:
     return out
 
 
+def remove_from_batch(user_id: str, problem_id: str) -> int:
+    """Drop every unsent attempt for `problem_id` from the student's
+    batch. Sent attempts are left alone (they belong to a submission)."""
+    removed = 0
+    for a in list_attempts(user_id):
+        if a.get("problem_id") != problem_id or a.get("sent_at") is not None:
+            continue
+        path = _attempt_path(user_id, a["id"])
+        if path.exists():
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def send_to_reviewer(student_uid: str, reviewer_uid: str) -> list[dict]:
     """Send all unsent attempts (latest per problem) to a single reviewer
     as one submission. Earlier unsent attempts on the same problem are

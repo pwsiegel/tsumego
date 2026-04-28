@@ -623,6 +623,12 @@ export const api = {
       return request<{ items: AttemptWithProblem[] }>('/api/study/batch', NO_STORE)
         .then((r) => r.items);
     },
+    removeFromBatch(problem_id: string): Promise<unknown> {
+      return request(
+        `/api/study/batch/problems/${encodeURIComponent(problem_id)}`,
+        { method: 'DELETE' },
+      );
+    },
     sendBatch(teacher_user_id: string): Promise<{ sent_count: number; teacher_user_id: string; sent_at: string }> {
       return postJson<{ sent_count: number; teacher_user_id: string; sent_at: string }>(
         '/api/study/batch/send', { teacher_user_id },

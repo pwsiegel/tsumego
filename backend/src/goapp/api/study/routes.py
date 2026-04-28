@@ -24,6 +24,7 @@ from ...study import (
     load_attempt,
     pending_for_reviewer,
     problem_statuses,
+    remove_from_batch,
     reviewed_attempts,
     reviewed_by_reviewer,
     save_attempt,
@@ -186,6 +187,14 @@ def problem_status_endpoint(user_id: str = UserId) -> ProblemStatusesResponse:
 @router.get("/api/study/batch", response_model=BatchResponse)
 def get_batch_endpoint(user_id: str = UserId) -> BatchResponse:
     return BatchResponse(items=_bundle(user_id, list_unsent(user_id)))
+
+
+@router.delete("/api/study/batch/problems/{problem_id}")
+def remove_from_batch_endpoint(
+    problem_id: str, user_id: str = UserId,
+) -> Response:
+    remove_from_batch(user_id, problem_id)
+    return Response(status_code=204)
 
 
 @router.post("/api/study/batch/send", response_model=SendBatchResponse)
