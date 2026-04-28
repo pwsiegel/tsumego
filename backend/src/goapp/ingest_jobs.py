@@ -145,7 +145,7 @@ def _seconds_since(iso: str) -> float:
 
 
 def apply_event(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-    """Mutate state in place from an `_iter_ingest_events` event payload."""
+    """Mutate state in place from a `pdf_ingest.iter_ingest_events` payload."""
     et = event.get("event")
     if et == "start":
         state["phase"] = "rendering"

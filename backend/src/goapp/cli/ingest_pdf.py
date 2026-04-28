@@ -13,25 +13,22 @@ After detection completes, files under
 $GOAPP_DATA_DIR/data/tsumego/{user_id}/ are rsynced to the GCS bucket
 (--no-upload to skip).
 
-Page-level detection is fanned out across `--workers` processes via
-ProcessPoolExecutor. Saves still happen serially in the main process
-because `source_board_idx` must be assigned in page-then-bbox order.
+The detection pipeline (and its multiprocess fan-out) lives in
+`goapp.pdf_ingest` and is shared with the API ingest job runner.
 """
 
 from __future__ import annotations
 
 import argparse
-import multiprocessing
-import os
+import json
 import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from .. import pdf_ingest
 from ..auth import _hash_email
 from ..paths import tsumego_dir
-from ..tsumego import problem_exists, save_problem
 
 
 def resolve_user_id(user: str) -> str:
@@ -40,63 +37,7 @@ def resolve_user_id(user: str) -> str:
     return user
 
 
-# BLAS/OpenMP default to all-cores; with N workers each running its own
-# multi-threaded ONNX session, we'd badly oversubscribe the CPU. Force
-# single-threaded numerics inside each worker so N workers ≈ N cores.
-def _worker_init() -> None:
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    import cv2
-    cv2.setNumThreads(1)
-
-
-def _process_page(pdf_path: str, page_idx: int) -> tuple[int, list[dict]]:
-    """Render one page, detect boards, discretize each. Returns (page_idx, boards)."""
-    import cv2
-    import numpy as np
-    import pypdfium2 as pdfium
-    from ..ml.board_detect.detect import detect_boards_yolo
-    from ..ml.pipeline import BOARD_CROP_PAD, discretize_crop
-
-    pdf = pdfium.PdfDocument(pdf_path)
-    pil = pdf[page_idx].render(scale=2.0).to_pil()
-    img_bgr = np.array(pil)[..., ::-1].copy()
-
-    bboxes = detect_boards_yolo(img_bgr)
-    h, w = img_bgr.shape[:2]
-    pad = BOARD_CROP_PAD
-
-    boards: list[dict] = []
-    for bbox_idx, b in enumerate(bboxes):
-        x0 = max(0, b.x0 - pad); y0 = max(0, b.y0 - pad)
-        x1 = min(w, b.x1 + pad); y1 = min(h, b.y1 + pad)
-        crop = img_bgr[y0:y1, x0:x1]
-        try:
-            d, _ = discretize_crop(crop)
-            stones = [
-                {"col": int(s.col), "row": int(s.row), "color": str(s.color)}
-                for s in d.stones
-            ]
-            ok, buf = cv2.imencode(".png", crop)
-            boards.append({
-                "bbox_idx": bbox_idx,
-                "stones": stones,
-                "crop_png": buf.tobytes() if ok else None,
-            })
-        except Exception as e:
-            boards.append({"bbox_idx": bbox_idx, "error": repr(e)})
-    return page_idx, boards
-
-
-def _count_pages(pdf_path: Path) -> int:
-    import pypdfium2 as pdfium
-    pdf = pdfium.PdfDocument(str(pdf_path))
-    return len(pdf)
-
-
 def main() -> int:
-    default_workers = max(1, (os.cpu_count() or 4) - 2)
     parser = argparse.ArgumentParser(
         description="Run board detection on a PDF locally and sync results to GCS.",
     )
@@ -112,8 +53,8 @@ def main() -> int:
     parser.add_argument("--bucket", default="tsumego-pwsiegel-data")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument(
-        "--workers", type=int, default=default_workers,
-        help=f"page-level worker processes (default: {default_workers})",
+        "--workers", type=int, default=pdf_ingest.default_workers(),
+        help=f"page-level worker processes (default: {pdf_ingest.default_workers()})",
     )
     args = parser.parse_args()
 
@@ -123,66 +64,30 @@ def main() -> int:
 
     user_id = resolve_user_id(args.user)
     source = args.source or args.pdf.name
-    uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     pdf_path = str(args.pdf.resolve())
-    total_pages = _count_pages(args.pdf)
 
     print(f"==> ingesting {args.pdf.name} as user_id={user_id} source={source!r}")
-    print(f"  pages: {total_pages}, workers: {args.workers}")
-
-    page_results: dict[int, list[dict]] = {}
-    t_start = time.time()
-    ctx = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(
-        max_workers=args.workers,
-        mp_context=ctx,
-        initializer=_worker_init,
-    ) as ex:
-        futures = {
-            ex.submit(_process_page, pdf_path, i): i
-            for i in range(total_pages)
-        }
-        done = 0
-        for fut in as_completed(futures):
-            page_idx, boards = fut.result()
-            page_results[page_idx] = boards
-            done += 1
-            print(f"  [{done}/{total_pages}] page {page_idx + 1}: {len(boards)} boards")
-    print(f"  detection took {time.time() - t_start:.1f}s")
+    print(f"  workers: {args.workers}")
 
     total_saved = 0
     skipped = 0
-    failed = 0
-    source_board_idx = 0
-    for page_idx in range(total_pages):
-        for board in page_results.get(page_idx, []):
-            if "error" in board:
-                print(f"  ! page {page_idx + 1} bbox {board['bbox_idx']}: "
-                      f"{board['error']}", file=sys.stderr)
-                failed += 1
-                source_board_idx += 1
-                continue
-            if problem_exists(user_id, source, source_board_idx):
-                skipped += 1
-                source_board_idx += 1
-                continue
-            save_problem(
-                user_id=user_id,
-                source=source,
-                uploaded_at=uploaded_at,
-                source_board_idx=source_board_idx,
-                stones=board["stones"],
-                black_to_play=True,
-                crop_png=board["crop_png"],
-                status="unreviewed",
-                page_idx=page_idx,
-                bbox_idx=board["bbox_idx"],
-            )
-            total_saved += 1
-            source_board_idx += 1
-
-    print(f"==> detection done: {total_saved} saved, "
-          f"{skipped} skipped, {failed} failed")
+    t_start = time.time()
+    for line in pdf_ingest.iter_ingest_events(
+        pdf_path, source, user_id, workers=args.workers,
+    ):
+        ev = json.loads(line)
+        kind = ev.get("event")
+        if kind == "start":
+            print(f"  pages: {ev['total_pages']}")
+        elif kind == "page_rendered":
+            print(f"  [{ev['page']}/{ev['total_pages']}] page complete")
+        elif kind == "board_saved":
+            total_saved = ev["total_saved"]
+        elif kind == "done":
+            total_saved = ev["total_saved"]
+            skipped = ev["skipped"]
+    print(f"  detection took {time.time() - t_start:.1f}s")
+    print(f"==> detection done: {total_saved} saved, {skipped} skipped")
 
     if args.no_upload:
         print("==> skipping upload (--no-upload)")

@@ -4,7 +4,6 @@ import json as _json
 import logging
 import threading
 import uuid
-from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -401,109 +400,14 @@ def board_tjunctions_endpoint(
     )
 
 
-def _iter_ingest_events(content: bytes, source_name: str, user_id: str) -> Iterator[str]:
-    """Render pages, detect boards, save each problem; yield NDJSON events."""
-    import io
-    import json as _json
-    import shutil
-    import time
-    import cv2
-    import numpy as np
-    import pypdfium2 as pdfium
-    from ...tsumego import problem_exists, save_problem
-
-    if not content:
-        raise HTTPException(status_code=400, detail="empty file")
-    uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    if BBOX_TEST_DIR.exists():
-        shutil.rmtree(BBOX_TEST_DIR)
-    BBOX_TEST_DIR.mkdir(parents=True, exist_ok=True)
-    _page_bboxes_cached.cache_clear()
-
-    try:
-        pdf = pdfium.PdfDocument(io.BytesIO(content))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid PDF: {e}") from e
-    total_pages = len(pdf)
-
-    yield _json.dumps({
-        "event": "start", "source": source_name,
-        "uploaded_at": uploaded_at, "total_pages": total_pages,
-    }) + "\n"
-
-    for i, page in enumerate(pdf):
-        pil_img = page.render(scale=2.0).to_pil()
-        img_bgr = np.array(pil_img)[..., ::-1].copy()
-        ok, buf = cv2.imencode(".png", img_bgr)
-        if ok:
-            (BBOX_TEST_DIR / f"page_{i:04d}.png").write_bytes(buf.tobytes())
-        yield _json.dumps({
-            "event": "page_rendered", "page": i + 1, "total_pages": total_pages,
-        }) + "\n"
-
-    total_saved = 0
-    skipped = 0
-    source_board_idx = 0
-    for page_idx in range(total_pages):
-        _, bboxes = _page_bboxes(page_idx)
-        for bbox_idx in range(len(bboxes)):
-            if problem_exists(user_id, source_name, source_board_idx):
-                skipped += 1
-                source_board_idx += 1
-                continue
-            try:
-                d = _discretize_board(page_idx, bbox_idx)
-                crop, _, _ = _board_crop(page_idx, bbox_idx)
-                ok, buf = cv2.imencode(".png", crop)
-                crop_png = buf.tobytes() if ok else None
-                save_problem(
-                    user_id=user_id,
-                    source=source_name,
-                    uploaded_at=uploaded_at,
-                    source_board_idx=source_board_idx,
-                    stones=[{
-                        "col": s.col, "row": s.row, "color": s.color,
-                    } for s in d.stones],
-                    black_to_play=True,
-                    crop_png=crop_png,
-                    status="unreviewed",
-                    page_idx=page_idx,
-                    bbox_idx=bbox_idx,
-                )
-                total_saved += 1
-            except Exception as e:
-                log.warning("ingest: board %d (page %d bbox %d) failed: %s",
-                            source_board_idx, page_idx, bbox_idx, e)
-            yield _json.dumps({
-                "event": "board_saved",
-                "source_board_idx": source_board_idx,
-                "page_idx": page_idx,
-                "bbox_idx": bbox_idx,
-                "total_saved": total_saved,
-            }) + "\n"
-            source_board_idx += 1
-        # Emitted regardless of whether the page had any boards, so the
-        # frontend can show determinate progress through the detection
-        # phase even on pages where YOLO returned nothing.
-        yield _json.dumps({
-            "event": "page_detected", "page": page_idx + 1,
-        }) + "\n"
-
-    yield _json.dumps({
-        "event": "done",
-        "source": source_name,
-        "total_saved": total_saved,
-        "skipped": skipped,
-    }) + "\n"
-
-
 def _run_job(user_id: str, job_id: str) -> None:
-    """Consume `_iter_ingest_events` and persist progress to job state.
+    """Consume `pdf_ingest.iter_ingest_events` and persist progress to job state.
 
     Called from a thread so the FastAPI event loop stays responsive
     while pdfium / YOLO inference runs.
     """
+    from ... import pdf_ingest
+
     pdf_path = ingest_jobs.source_pdf_path(user_id, job_id)
     if not pdf_path.exists():
         ingest_jobs.mark_error(user_id, job_id, "staged PDF missing")
@@ -513,8 +417,9 @@ def _run_job(user_id: str, job_id: str) -> None:
         log.warning("ingest job %s/%s has no state; aborting", user_id, job_id)
         return
     try:
-        content = pdf_path.read_bytes()
-        for line in _iter_ingest_events(content, state["source"], user_id):
+        for line in pdf_ingest.iter_ingest_events(
+            str(pdf_path), state["source"], user_id,
+        ):
             try:
                 event = _json.loads(line)
             except _json.JSONDecodeError:

@@ -871,6 +871,14 @@ flow's IAP scoping — caller is trusted to pass the right user id and to
 not run two ingests concurrently against the same user. Fine for the
 single-user case.
 
+Pulled the parallel pipeline up into a shared `goapp.pdf_ingest` module
+so the API ingest job runner (`api.pdf.routes._run_job`) calls the same
+function. With `cpu_count - 2` defaulting to 1 on Cloud Run's 2-vCPU
+runtime, the server stays in-process — no pool spin-up overhead, the
+warm ONNX session in the parent is reused. The old serial
+`_iter_ingest_events` (and its BBOX_TEST_DIR side effects) is gone; the
+bbox-test endpoints already manage that directory themselves.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
