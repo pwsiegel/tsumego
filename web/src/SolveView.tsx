@@ -29,6 +29,7 @@ export function SolveView() {
   const [teachers, setTeachers] = useState<LinkedUser[]>([]);
   const [siblings, setSiblings] = useState<TsumegoProblem[] | null>(null);
   const [submission, setSubmission] = useState<SubmissionT | null>(null);
+  const [submissionStatuses, setSubmissionStatuses] = useState<Record<string, ProblemStatus>>({});
   const [moves, setMoves] = useState<MovePoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -76,14 +77,18 @@ export function SolveView() {
   useEffect(() => {
     if (!fromSubmission) {
       setSubmission(null);
+      setSubmissionStatuses({});
       return;
     }
     let cancelled = false;
     api.study.getSubmission(fromSubmission)
       .then((s) => !cancelled && setSubmission(s))
       .catch(() => !cancelled && setSubmission(null));
+    api.study.problemStatuses()
+      .then((s) => !cancelled && setSubmissionStatuses(s))
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [fromSubmission]);
+  }, [fromSubmission, id]);
 
   const verdictForCurrent = useMemo(() => {
     if (!submission) return null;
@@ -104,7 +109,14 @@ export function SolveView() {
   }>(() => {
     if (retry === 'incorrect' && submission) {
       const list = submission.items
-        .filter((it) => it.attempt.reviews[submission.reviewer_id]?.verdict === 'incorrect')
+        .filter((it) => {
+          if (it.attempt.reviews[submission.reviewer_id]?.verdict !== 'incorrect') {
+            return false;
+          }
+          if (it.problem.id === id) return true;
+          const latest = submissionStatuses[it.problem.id]?.latest_attempt_at;
+          return !(latest != null && latest > it.attempt.submitted_at);
+        })
         .map((it) => ({ id: it.problem.id, source: it.problem.source }));
       const idx = list.findIndex((t) => t.id === id);
       return {
@@ -122,7 +134,7 @@ export function SolveView() {
       next: idx >= 0 && idx < siblings.length - 1 ? { id: siblings[idx + 1].id, source } : null,
       total: siblings.length,
     };
-  }, [retry, submission, siblings, id, source]);
+  }, [retry, submission, submissionStatuses, siblings, id, source]);
 
   const stones: Stone[] = useMemo(() => {
     return (problem?.stones ?? []).map((s) => ({

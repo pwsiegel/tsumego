@@ -200,6 +200,11 @@
   border: 1px dashed var(--border-strong);
 }
 
+.reviewed-verdict.v-incorrect-retried {
+  background: var(--warning-bg-soft);
+  color: var(--warning-strong);
+}
+
 .submission-actions {
   margin-top: 0.6rem;
   display: flex;

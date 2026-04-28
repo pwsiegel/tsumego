@@ -58,13 +58,20 @@ export function Submission() {
   const reviewed = submission.items.filter(
     (it) => it.attempt.reviews[submission.reviewer_id] !== undefined,
   ).length;
-  const incorrect = submission.items.filter(
-    (it) => it.attempt.reviews[submission.reviewer_id]?.verdict === 'incorrect',
+  const isRetried = (it: AttemptWithProblem) => {
+    const latest = statuses[it.problem.id]?.latest_attempt_at;
+    return latest != null && latest > it.attempt.submitted_at;
+  };
+  const incorrectUnretried = submission.items.filter(
+    (it) =>
+      it.attempt.reviews[submission.reviewer_id]?.verdict === 'incorrect'
+      && !isRetried(it),
   );
-  const firstIncorrect = incorrect[0];
+  const firstIncorrect = incorrectUnretried[0];
   const retryHref = firstIncorrect
     ? `/collections/${encodeURIComponent(firstIncorrect.problem.source)}/solve/${firstIncorrect.problem.id}?from_submission=${encodeURIComponent(submission.sent_at)}&retry=incorrect`
     : null;
+  const showActions = submission.state === 'returned' || submission.state === 'acked';
 
   return (
     <div className="reviewed">
@@ -78,21 +85,23 @@ export function Submission() {
             ? `${reviewed} of ${total} reviewed`
             : `${total} problem${total === 1 ? '' : 's'}, all reviewed`}
         </div>
-        {submission.state === 'returned' && (
+        {showActions && (retryHref || submission.state === 'returned') && (
           <div className="submission-actions">
             {retryHref && (
               <Link to={retryHref} className="submission-retry-btn">
-                Retry incorrect ({incorrect.length})
+                Retry incorrect ({incorrectUnretried.length})
               </Link>
             )}
-            <button
-              type="button"
-              onClick={ack}
-              disabled={acking}
-              className="submission-ack-btn"
-            >
-              {acking ? 'Marking…' : 'Mark as read'}
-            </button>
+            {submission.state === 'returned' && (
+              <button
+                type="button"
+                onClick={ack}
+                disabled={acking}
+                className="submission-ack-btn"
+              >
+                {acking ? 'Marking…' : 'Mark as read'}
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -159,7 +168,13 @@ function SubmissionRow({
           </div>
           <ul className="reviewed-verdicts">
             {review ? (
-              <li className={`reviewed-verdict v-${review.verdict}`}>
+              <li
+                className={
+                  retried
+                    ? 'reviewed-verdict v-incorrect-retried'
+                    : `reviewed-verdict v-${review.verdict}`
+                }
+              >
                 <span className="reviewed-verdict-mark">
                   {review.verdict === 'correct' ? '✓' : '✗'}
                 </span>
