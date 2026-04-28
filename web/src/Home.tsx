@@ -301,7 +301,7 @@ export function Home() {
           >
             <input
               type="text"
-              placeholder="Name (e.g. Sensei Tanaka)"
+              placeholder="Name"
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               disabled={creating}
