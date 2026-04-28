@@ -7,6 +7,7 @@ import {
   type Collection,
   type IngestJob,
   type LinkedUser,
+  type Profile,
   type Submission,
 } from './api';
 import { computeNumberedOverlay } from './numberedMoves';
@@ -49,6 +50,7 @@ export function Home() {
   const [submitFlash, setSubmitFlash] = useState<string | null>(null);
   const [outboxExpanded, setOutboxExpanded] = useState(false);
   const [linkedStudents, setLinkedStudents] = useState<LinkedUser[] | null>(null);
+  const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [jobs, setJobs] = useState<IngestJob[] | null>(null);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pollNonce, setPollNonce] = useState(0);
@@ -70,6 +72,9 @@ export function Home() {
     api.teacher.listStudents()
       .then(setLinkedStudents)
       .catch(() => setLinkedStudents([]));
+    api.study.getProfile()
+      .then(setMyProfile)
+      .catch(() => {});
   }, []);
 
   // Poll active ingest jobs. The chain stops automatically once every
@@ -189,7 +194,7 @@ export function Home() {
   return (
     <div className="home">
       <header className="home-header">
-        <h1>Go problem workbook</h1>
+        <h1>{myProfile?.display_name ?? '\u00a0'}</h1>
         <nav className="home-nav">
           {hasLinkedStudents && (
             <Link to="/teacher" className="dim">teacher view</Link>

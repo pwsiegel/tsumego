@@ -69,6 +69,13 @@ type PendingBatch = {
 
 function TeacherLanding({ students }: { students: LinkedUser[] }) {
   const [pending, setPending] = useState<PendingBatch[] | null>(null);
+  const [myName, setMyName] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.study.getProfile()
+      .then((p) => setMyName(p.display_name ?? ''))
+      .catch(() => setMyName(''));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,11 +106,13 @@ function TeacherLanding({ students }: { students: LinkedUser[] }) {
   return (
     <div className="home">
       <header className="home-header">
-        <h1>Teacher review</h1>
+        <h1>{myName || '\u00a0'}</h1>
         <nav className="home-nav">
           <Link to="/" state={{ from: 'teacher' }} className="dim">
             student view
           </Link>
+          <Link to="/profile" className="dim">profile</Link>
+          <Link to="/testing" className="dim">developer tools</Link>
         </nav>
       </header>
 
