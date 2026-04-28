@@ -1,5 +1,9 @@
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import {
+  Navigate, Route, Routes, useLocation, useNavigate,
+} from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
+import { api } from './api';
 import { BboxTest } from './BboxTest';
 import { BoardParsing } from './BoardParsing';
 import { Collection } from './Collection';
@@ -16,6 +20,33 @@ import { TeacherView } from './TeacherView';
 import { TestingIndex } from './TestingIndex';
 import { Upload } from './Upload';
 import { Validate } from './Validate';
+
+/** Route element for `/`. On a fresh entry to `/`, honor the user's
+ * `default_role` and bounce teachers to `/teacher`. The teacher landing
+ * passes `state={{ from: 'teacher' }}` on its "student view" link so the
+ * student-side Home can be reached without bouncing back. */
+function RootRoute() {
+  const location = useLocation();
+  const [decision, setDecision] = useState<'home' | 'teacher' | null>(null);
+  const fromTeacher =
+    (location.state as { from?: string } | null)?.from === 'teacher';
+
+  useEffect(() => {
+    if (fromTeacher) {
+      setDecision('home');
+      return;
+    }
+    api.study.getProfile()
+      .then((p) => {
+        setDecision(p.default_role === 'teacher' ? 'teacher' : 'home');
+      })
+      .catch(() => setDecision('home'));
+  }, [fromTeacher]);
+
+  if (decision === null) return null;
+  if (decision === 'teacher') return <Navigate to="/teacher" replace />;
+  return <Home />;
+}
 
 function BboxTestRoute() {
   const navigate = useNavigate();
@@ -41,7 +72,7 @@ function App() {
     <HealthGate>
       <ThemeToggle />
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<RootRoute />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/reviewed" element={<Reviewed />} />

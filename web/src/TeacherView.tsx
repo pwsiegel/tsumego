@@ -101,7 +101,9 @@ function TeacherLanding({ students }: { students: LinkedUser[] }) {
       <header className="home-header">
         <h1>Teacher review</h1>
         <nav className="home-nav">
-          <Link to="/" className="dim">student view</Link>
+          <Link to="/" state={{ from: 'teacher' }} className="dim">
+            student view
+          </Link>
         </nav>
       </header>
 
@@ -260,7 +262,9 @@ function StudentReview({
   const backLink = hasOthers ? (
     <Link to="/teacher" className="back-link">← all students</Link>
   ) : (
-    <Link to="/" className="back-link">← student view</Link>
+    <Link to="/" state={{ from: 'teacher' }} className="back-link">
+      ← student view
+    </Link>
   );
 
   if (error && !items) {

@@ -138,10 +138,12 @@ class AckSubmissionResponse(BaseModel):
 class Profile(BaseModel):
     display_name: str | None = None
     email: str | None = None
+    default_role: str | None = None  # "student" | "teacher"
 
 
 class UpdateProfileRequest(BaseModel):
     display_name: str | None = None
+    default_role: str | None = None
 
 
 class ReviewRequest(BaseModel):

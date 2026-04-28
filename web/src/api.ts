@@ -249,6 +249,7 @@ export type LinkedUser = {
 export type Profile = {
   display_name: string | null;
   email: string | null;
+  default_role: 'student' | 'teacher' | null;
 };
 
 export type ProblemStatus = {
