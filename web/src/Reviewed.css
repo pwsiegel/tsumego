@@ -1,0 +1,232 @@
+.reviewed {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #222;
+}
+
+.reviewed-header {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e4e4e4;
+}
+
+.reviewed-header .back-link {
+  display: inline-block;
+  color: #888;
+  text-decoration: none;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.reviewed-header .back-link:hover {
+  color: #222;
+  text-decoration: underline;
+}
+
+.reviewed-header h1 {
+  font-size: 1.4rem;
+  margin: 0.15rem 0;
+}
+
+.reviewed-meta {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.reviewed-toggle {
+  margin-top: 0.5rem;
+  display: inline-flex;
+  border: 1px solid #c8c8c8;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.reviewed-toggle-btn {
+  background: #fff;
+  border: none;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.reviewed-toggle-btn + .reviewed-toggle-btn {
+  border-left: 1px solid #c8c8c8;
+}
+
+.reviewed-toggle-btn:hover {
+  background: #f4f4f4;
+}
+
+.reviewed-toggle-btn.active {
+  background: #1a66c8;
+  color: #fff;
+}
+
+.reviewed-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.reviewed-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid #eee;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.reviewed-group-count {
+  font-size: 0.85rem;
+  color: #888;
+  font-weight: 400;
+}
+
+.reviewed-error {
+  background: #fdecec;
+  color: #a02020;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  margin: 0.5rem 0 1rem;
+}
+
+.reviewed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.reviewed-row {
+  border: 1px solid #e4e4e4;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.reviewed-row-link {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.reviewed-row-link:hover {
+  background: #fafafa;
+}
+
+.reviewed-row-board {
+  background: #f7f3e8;
+  border-radius: 4px;
+  padding: 0.35rem;
+}
+
+.reviewed-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.reviewed-row-source {
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.reviewed-row-collection {
+  font-weight: 500;
+}
+
+.reviewed-row-source .dot,
+.reviewed-row-stamp .dot {
+  margin: 0 0.35rem;
+  color: #ccc;
+}
+
+.reviewed-row-stamp {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.reviewed-verdicts {
+  list-style: none;
+  padding: 0;
+  margin: 0.2rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.reviewed-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.reviewed-verdict.v-correct {
+  background: #ecf6e8;
+  color: #2a6a16;
+}
+
+.reviewed-verdict.v-incorrect {
+  background: #fdecec;
+  color: #a02020;
+}
+
+.reviewed-verdict.v-pending {
+  background: #f3f1ea;
+  color: #6a5a14;
+}
+
+.submission-actions {
+  margin-top: 0.6rem;
+}
+
+.submission-ack-btn {
+  padding: 0.5rem 1.1rem;
+  border: 1px solid #1a66c8;
+  background: #1a66c8;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.submission-ack-btn:disabled {
+  background: #c8c8c8;
+  border-color: #c8c8c8;
+  cursor: not-allowed;
+}
+
+.reviewed-verdict-mark {
+  font-weight: 600;
+}
+
+.reviewed-verdict-label {
+  font-weight: 500;
+}
+
+.reviewed-verdict-when {
+  color: #888;
+  font-size: 0.78rem;
+}
+
+.dim {
+  color: #888;
+}

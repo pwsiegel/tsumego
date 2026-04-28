@@ -770,6 +770,18 @@ annotation-glyph extras + 1 missed stone). Re-run with
 
 ---
 
+## 2026-04-27 — single-teacher submissions + ack notification
+
+Turned the multi-teacher submission model into a single-teacher one to
+get a clean notification flow. Each "Send" now picks one teacher (radio
+in `/batch`) and produces one submission identified by its `sent_at`.
+Attempts gain `acked_at`; submissions transition pending → returned →
+acked. Home shows in-flight (non-acked) submissions; click leads to a
+detail page with "Mark as read" once all attempts are reviewed. `/reviewed`
+filters to acked-only so graded history doesn't duplicate the in-flight
+panel. Tradeoff: students who want a second opinion must resubmit
+explicitly — accepted as a feature.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have

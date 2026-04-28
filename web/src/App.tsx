@@ -7,6 +7,10 @@ import { HealthGate } from './HealthGate';
 import { Home } from './Home';
 import { ProblemDetail } from './ProblemDetail';
 import { Review } from './Review';
+import { Reviewed } from './Reviewed';
+import { SolveEntry, SolveView } from './SolveView';
+import { Submission } from './Submission';
+import { TeacherView } from './TeacherView';
 import { TestingIndex } from './TestingIndex';
 import { Upload } from './Upload';
 import { Validate } from './Validate';
@@ -36,10 +40,15 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/reviewed" element={<Reviewed />} />
+        <Route path="/submissions/:sent_at" element={<Submission />} />
         <Route path="/collections/:source" element={<Collection />} />
         <Route path="/collections/:source/review" element={<Review />} />
         <Route path="/collections/:source/problem/:id" element={<ProblemDetail />} />
+        <Route path="/collections/:source/solve" element={<SolveEntry />} />
+        <Route path="/collections/:source/solve/:id" element={<SolveView />} />
         <Route path="/tsumego" element={<TsumegoPlaceholder />} />
+        <Route path="/teacher/:token" element={<TeacherView />} />
         <Route path="/compare/:dataset" element={<Compare />} />
         <Route path="/testing" element={<TestingIndex />} />
         <Route path="/testing/bbox" element={<BboxTestRoute />} />

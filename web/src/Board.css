@@ -54,6 +54,21 @@
   pointer-events: none;
 }
 
+/* Numbered-move overlay (no stone underneath): a board-colored disc
+ * masks the grid line crossing under the number, with the same dark
+ * text used elsewhere on board. */
+.move-number-halo {
+  fill: #e6b871;
+  pointer-events: none;
+}
+
+.move-number-empty {
+  fill: #2b1d10;
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .hit {
   fill: transparent;
   cursor: pointer;

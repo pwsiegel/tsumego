@@ -12,6 +12,7 @@ from .. import __version__
 from .health.routes import router as health_router
 from .health.routes import start_warming
 from .pdf.routes import router as pdf_router
+from .study.routes import router as study_router
 from .tsumego.routes import router as tsumego_router
 from .val.routes import router as val_router
 
@@ -28,6 +29,7 @@ app = FastAPI(title="Go Problem Workbook API", version=__version__, lifespan=lif
 
 app.include_router(health_router)
 app.include_router(pdf_router)
+app.include_router(study_router)
 app.include_router(tsumego_router)
 app.include_router(val_router)
 

@@ -1,5 +1,6 @@
 import type { Stone } from './types';
 import { BOARD_SIZE } from './types';
+import type { NumberedMove } from './numberedMoves';
 import './Board.css';
 
 type Props = {
@@ -7,7 +8,7 @@ type Props = {
   /** Called with the intersection clicked and whether Shift was held,
    * so callers can map unmodified vs shifted clicks to different
    * behaviors (e.g. place B vs W). */
-  onPlay: (x: number, y: number, shift: boolean) => void;
+  onPlay?: (x: number, y: number, shift: boolean) => void;
   /** When true, clicks fire on every intersection (including occupied
    * ones) so the caller can cycle / remove / overwrite. Default false
    * keeps "place a stone" semantics. */
@@ -23,6 +24,14 @@ type Props = {
    * of the grid, so a viewer can refer to positions unambiguously when
    * describing what they see. */
   showCoords?: boolean;
+  /** Numbered move overlay (solve attempts). Painted on top of the
+   * position without adding stones. On an empty intersection the number
+   * gets a board-colored halo so it reads against the grid; on an
+   * occupied intersection (rare — an initial stone) it uses the
+   * existing on-stone label style. Use `computeNumberedOverlay` from
+   * `numberedMoves` to derive this from a moves list and to surface
+   * any "1…5…8" chains for repeated points. */
+  numberedMoves?: NumberedMove[];
 };
 
 const PADDING = 30;
@@ -41,6 +50,7 @@ const toPx = (i: number) => PADDING + i * CELL;
 export function Board({
   stones, onPlay, editable = false, viewport,
   displayOnly = false, showCoords = false,
+  numberedMoves,
 }: Props) {
   const occupied = new Map<string, Stone>();
   for (const s of stones) occupied.set(`${s.x},${s.y}`, s);
@@ -125,7 +135,7 @@ export function Board({
             width={CELL}
             height={CELL}
             className={filled && !editable ? 'hit occupied' : 'hit'}
-            onClick={(e) => (editable || !filled) && onPlay(x, y, e.shiftKey)}
+            onClick={(e) => onPlay && (editable || !filled) && onPlay(x, y, e.shiftKey)}
           />
         );
       })}
@@ -151,6 +161,34 @@ export function Board({
           )}
         </g>
       ))}
+
+      {/* Numbered-move overlay (solve attempts; no stones added) */}
+      {numberedMoves?.map((n) => {
+        const stone = occupied.get(`${n.x},${n.y}`);
+        const labelClass = stone
+          ? (stone.color === 'B' ? 'label-on-black' : 'label-on-white')
+          : 'move-number-empty';
+        return (
+          <g key={`num-${n.x}-${n.y}`} style={{ pointerEvents: 'none' }}>
+            {!stone && (
+              <circle
+                cx={toPx(n.x)} cy={toPx(n.y)}
+                r={CELL * 0.36}
+                className="move-number-halo"
+              />
+            )}
+            <text
+              x={toPx(n.x)} y={toPx(n.y)}
+              className={labelClass}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={CELL * 0.5}
+            >
+              {n.number}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 }

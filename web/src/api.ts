@@ -165,13 +165,92 @@ export type BoardTJunctionEdges = {
   stone_edges: StoneEdgeClass[];
 };
 
-// Streaming ingest events from `/api/pdf/ingest` (NDJSON body).
-export type IngestEvent =
-  | { event: 'start'; source: string; uploaded_at: string; total_pages: number }
-  | { event: 'page_rendered'; page: number; total_pages: number }
-  | { event: 'board_saved'; source_board_idx: number; page_idx: number; bbox_idx: number; total_saved: number }
-  | { event: 'done'; source: string; total_saved: number; skipped: number }
-  | { event: 'error'; detail: string };
+export type IngestJobPhase = 'rendering' | 'detecting' | 'done' | 'error';
+
+export type IngestJob = {
+  job_id: string;
+  source: string;
+  phase: IngestJobPhase;
+  started_at: string;
+  updated_at: string;
+  total_pages: number | null;
+  pages_rendered: number;
+  pages_detected: number;
+  total_saved: number;
+  skipped: number;
+  error: string | null;
+  stalled: boolean;
+};
+
+// ---------- /api/study + /api/teacher ----------
+
+export type Move = { col: number; row: number };
+
+export type Review = { verdict: 'correct' | 'incorrect'; reviewed_at: string };
+
+/** Student-facing attempt: full per-teacher reviews map. */
+export type Attempt = {
+  id: string;
+  problem_id: string;
+  moves: Move[];
+  submitted_at: string;
+  sent_to: string[];
+  sent_at: string | null;
+  reviews: Record<string, Review>;
+  acked_at: string | null;
+};
+
+export type SubmissionState = 'pending' | 'returned' | 'acked';
+
+export type Submission = {
+  sent_at: string;
+  teacher_id: string;
+  state: SubmissionState;
+  items: AttemptWithProblem[];
+};
+
+/** Teacher-facing attempt: only this teacher's review is exposed. */
+export type TeacherAttempt = {
+  id: string;
+  problem_id: string;
+  moves: Move[];
+  submitted_at: string;
+  sent_at: string | null;
+  review: Review | null;
+};
+
+export type ProblemSummary = {
+  id: string;
+  source: string;
+  source_board_idx: number;
+  black_to_play: boolean;
+  stones: ServerStone[];
+  has_image: boolean;
+};
+
+export type AttemptWithProblem = {
+  attempt: Attempt;
+  problem: ProblemSummary;
+};
+
+export type TeacherAttemptWithProblem = {
+  attempt: TeacherAttempt;
+  problem: ProblemSummary;
+};
+
+export type Teacher = {
+  id: string;
+  label: string;
+  created_at: string;
+  token: string;
+  url: string;
+};
+
+export type TeacherMe = { id: string; label: string; student: string };
+
+export type ProblemStatus = {
+  last_verdict: 'correct' | 'incorrect' | null;
+};
 
 // ---------- /api/val ----------
 
@@ -303,46 +382,34 @@ function putWithProgress(
   });
 }
 
-/** POST a body and parse newline-delimited JSON events as they arrive.
- *  XHR is used here too so we can both stream the response and (for the
- *  multipart case) report request-body upload progress. */
-function streamNdjson<E>(
+/** POST a body with upload-progress reporting; resolves with parsed JSON. */
+function postWithProgress<T>(
   url: string,
-  headers: Record<string, string> | undefined,
   body: XMLHttpRequestBodyInit,
-  onEvent: (ev: E) => void,
-  onProgress?: (frac: number) => void,
-): Promise<void> {
+  onProgress: (frac: number) => void,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
-    if (headers) {
-      for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
-    }
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress(e.loaded / e.total);
-      };
-    }
-    let offset = 0;
-    xhr.onprogress = () => {
-      const text = xhr.responseText ?? '';
-      while (true) {
-        const nl = text.indexOf('\n', offset);
-        if (nl === -1) break;
-        const line = text.slice(offset, nl).trim();
-        offset = nl + 1;
-        if (!line) continue;
-        try {
-          onEvent(JSON.parse(line) as E);
-        } catch {
-          // ignore unparseable lines
-        }
-      }
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(xhr.statusText || `HTTP ${xhr.status}`));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch (e) {
+          reject(e);
+        }
+      } else {
+        let detail: string | undefined;
+        try {
+          detail = (JSON.parse(xhr.responseText) as { detail?: string }).detail;
+        } catch {
+          // ignore
+        }
+        reject(new Error(detail ?? xhr.statusText ?? `HTTP ${xhr.status}`));
+      }
     };
     xhr.onerror = () => reject(new Error('network error'));
     xhr.send(body);
@@ -371,6 +438,12 @@ export const api = {
     },
     deleteCollection(source: string): Promise<unknown> {
       return request(`/api/tsumego/collections/${encodeURIComponent(source)}`, { method: 'DELETE' });
+    },
+    renameCollection(source: string, new_source: string): Promise<{ old_source: string; new_source: string; renamed: number }> {
+      return postJson(
+        `/api/tsumego/collections/${encodeURIComponent(source)}/rename`,
+        { new_source },
+      );
     },
     listProblems(source: string): Promise<TsumegoProblem[]> {
       return request<{ problems: TsumegoProblem[] }>(
@@ -473,23 +546,18 @@ export const api = {
     boardSkeletonUrl(pageIdx: number, bboxIdx: number): string {
       return `/api/pdf/board-skeleton/${pageIdx}/${bboxIdx}.png?${bust()}`;
     },
-    /**
-     * Stream PDF ingest progress over NDJSON. Calls `onProgress` with the
-     * upload fraction during the request body, and `onEvent` for each parsed
-     * server event. Resolves once the response completes successfully.
+    /** Upload the PDF and kick off a background ingest job. Resolves
+     * with the new job_id once the server has staged the file and
+     * scheduled the work; progress is then visible via `listJobs`.
      *
-     * Two transports depending on what the server tells us:
-     * - `signed-url`: PUT the file directly to GCS (Cloud Run's 32 MiB
-     *   request-body cap doesn't apply), then POST a small JSON request to
-     *   trigger the streaming ingest.
-     * - `multipart`: legacy path used locally; one XHR carries both the
-     *   upload and the streaming response.
-     */
-    async streamIngest(
+     * `onProgress` receives the upload fraction (0..1) so the UI can
+     * show a progress bar during the slow part on cloud (the upload
+     * itself); the server-side rendering/detection happens in the
+     * background after this resolves. */
+    async startIngest(
       file: File,
       onProgress: (frac: number) => void,
-      onEvent: (ev: IngestEvent) => void,
-    ): Promise<void> {
+    ): Promise<string> {
       const plan = await postJson<{ mode: 'signed-url' | 'multipart'; upload_id?: string; url?: string }>(
         '/api/pdf/upload-url',
         { filename: file.name },
@@ -497,17 +565,125 @@ export const api = {
       if (plan.mode === 'signed-url' && plan.url && plan.upload_id) {
         await putWithProgress(plan.url, file, onProgress);
         onProgress(1);
-        await streamNdjson(
+        const r = await postJson<{ job_id: string }>(
           '/api/pdf/ingest-from-upload',
-          { 'Content-Type': 'application/json' },
-          JSON.stringify({ upload_id: plan.upload_id, filename: file.name }),
-          onEvent,
+          { upload_id: plan.upload_id, filename: file.name },
         );
-        return;
+        return r.job_id;
       }
       const form = new FormData();
       form.append('file', file, file.name);
-      await streamNdjson('/api/pdf/ingest', undefined, form, onEvent, onProgress);
+      const r = await postWithProgress<{ job_id: string }>(
+        '/api/pdf/ingest', form, onProgress,
+      );
+      return r.job_id;
+    },
+    listJobs(): Promise<IngestJob[]> {
+      return request<{ jobs: IngestJob[] }>('/api/pdf/jobs', NO_STORE)
+        .then((r) => r.jobs);
+    },
+    restartJob(job_id: string): Promise<{ job_id: string }> {
+      return postJson<{ job_id: string }>(
+        `/api/pdf/jobs/${encodeURIComponent(job_id)}/restart`, {},
+      );
+    },
+    async dismissJob(job_id: string): Promise<void> {
+      const res = await fetch(
+        `/api/pdf/jobs/${encodeURIComponent(job_id)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) throw new Error(`dismiss failed: ${res.status}`);
+    },
+  },
+
+  study: {
+    submitAttempt(problem_id: string, moves: Move[]): Promise<Attempt> {
+      return postJson<Attempt>('/api/study/attempts', { problem_id, moves });
+    },
+    listAttempts(problem_id: string): Promise<Attempt[]> {
+      return request<{ attempts: Attempt[] }>(
+        `/api/study/problems/${problem_id}/attempts`, NO_STORE,
+      ).then((r) => r.attempts);
+    },
+    listReviewed(): Promise<AttemptWithProblem[]> {
+      return request<{ items: AttemptWithProblem[] }>('/api/study/reviewed', NO_STORE)
+        .then((r) => r.items);
+    },
+    problemStatuses(): Promise<Record<string, ProblemStatus>> {
+      return request<{ statuses: Record<string, ProblemStatus> }>(
+        '/api/study/problem-status', NO_STORE,
+      ).then((r) => r.statuses);
+    },
+    getBatch(): Promise<AttemptWithProblem[]> {
+      return request<{ items: AttemptWithProblem[] }>('/api/study/batch', NO_STORE)
+        .then((r) => r.items);
+    },
+    sendBatch(teacher_id: string): Promise<{ sent_count: number; teacher_id: string; sent_at: string }> {
+      return postJson<{ sent_count: number; teacher_id: string; sent_at: string }>(
+        '/api/study/batch/send', { teacher_id },
+      );
+    },
+    listSubmissions(): Promise<Submission[]> {
+      return request<{ submissions: Submission[] }>('/api/study/submissions', NO_STORE)
+        .then((r) => r.submissions);
+    },
+    getSubmission(sent_at: string): Promise<Submission> {
+      return request<Submission>(
+        `/api/study/submissions/${encodeURIComponent(sent_at)}`, NO_STORE,
+      );
+    },
+    ackSubmission(sent_at: string): Promise<{ sent_at: string; acked_count: number }> {
+      return postJson<{ sent_at: string; acked_count: number }>(
+        `/api/study/submissions/${encodeURIComponent(sent_at)}/ack`, {},
+      );
+    },
+    listTeachers(): Promise<Teacher[]> {
+      return request<{ teachers: Teacher[] }>('/api/study/teachers', NO_STORE)
+        .then((r) => r.teachers);
+    },
+    createTeacher(label: string): Promise<Teacher> {
+      return postJson<Teacher>('/api/study/teachers', { label });
+    },
+    updateTeacher(id: string, label: string): Promise<Teacher> {
+      return request<Teacher>(`/api/study/teachers/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+    },
+    deleteTeacher(id: string): Promise<void> {
+      return request<unknown>(`/api/study/teachers/${id}`, { method: 'DELETE' })
+        .then(() => undefined);
+    },
+  },
+
+  teacher: {
+    me(token: string): Promise<TeacherMe> {
+      return request<TeacherMe>(`/api/teacher/${token}/me`, NO_STORE);
+    },
+    queue(token: string): Promise<TeacherAttemptWithProblem[]> {
+      return request<{ items: TeacherAttemptWithProblem[] }>(
+        `/api/teacher/${token}/queue`, NO_STORE,
+      ).then((r) => r.items);
+    },
+    reviewed(token: string): Promise<TeacherAttemptWithProblem[]> {
+      return request<{ items: TeacherAttemptWithProblem[] }>(
+        `/api/teacher/${token}/reviewed`, NO_STORE,
+      ).then((r) => r.items);
+    },
+    getAttempt(token: string, attempt_id: string): Promise<TeacherAttemptWithProblem> {
+      return request<TeacherAttemptWithProblem>(
+        `/api/teacher/${token}/attempts/${attempt_id}`, NO_STORE,
+      );
+    },
+    review(token: string, attempt_id: string, verdict: 'correct' | 'incorrect'): Promise<TeacherAttempt> {
+      return postJson<TeacherAttempt>(
+        `/api/teacher/${token}/attempts/${attempt_id}/review`,
+        { verdict },
+      );
+    },
+    problemImageUrl(token: string, problem_id: string): string {
+      return `/api/teacher/${token}/problems/${problem_id}/image.png`;
     },
   },
 
