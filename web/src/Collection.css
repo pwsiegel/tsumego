@@ -131,9 +131,9 @@
 }
 
 .review-rejected-btn {
-  background: white;
+  background: var(--bg);
   color: var(--warning-strong);
-  border-color: #d9a85c;
+  border-color: var(--warning-amber);
 }
 .review-rejected-btn:hover:enabled {
   background: var(--warning-bg);
@@ -161,7 +161,7 @@
 }
 
 .delete-mode-btn {
-  background: white;
+  background: var(--bg);
   color: var(--text-secondary);
   border-color: var(--text-bbb);
 }
@@ -171,7 +171,7 @@
 }
 
 .cancel-btn {
-  background: white;
+  background: var(--bg);
   color: var(--text-tertiary);
   border-color: var(--text-bbb);
 }
@@ -179,10 +179,10 @@
 
 .confirm-delete-btn {
   background: var(--error);
-  color: white;
+  color: var(--bg);
   border-color: var(--error);
 }
-.confirm-delete-btn:hover:enabled { background: #a32828; }
+.confirm-delete-btn:hover:enabled { background: var(--error-strong); }
 
 .selection-count {
   color: var(--text-tertiary);
@@ -218,7 +218,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
-  background: white;
+  background: var(--bg);
   width: 100%;
   padding: 0;
   font: inherit;

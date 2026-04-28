@@ -190,7 +190,7 @@
 }
 
 .reviewed-verdict.v-pending {
-  background: #f3f1ea;
+  background: var(--warning-bg-soft);
   color: var(--warning-mid);
 }
 

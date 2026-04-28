@@ -178,7 +178,7 @@
 .teacher-actions .verdict.correct {
   background: var(--bg);
   color: var(--success);
-  border-color: #b6dcb9;
+  border-color: var(--success-bg);
 }
 .teacher-actions .verdict.correct:hover:not(:disabled) {
   background: var(--success-bg);
@@ -373,7 +373,7 @@
 .teacher-draft-banner {
   background: var(--bg-alt);
   border: 1px solid var(--accent-bg-stronger);
-  color: #1a4480;
+  color: var(--accent);
   padding: 0.55rem 0.8rem;
   border-radius: 6px;
   margin-bottom: 0.75rem;
@@ -425,7 +425,7 @@
 }
 
 .teacher-tile-board:hover {
-  background: #efe9d6;
+  background: var(--warning-bg-soft);
 }
 
 .teacher-tile-meta {

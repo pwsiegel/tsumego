@@ -59,7 +59,7 @@
   padding: 0.4rem 0.8rem;
   font-size: 1rem;
   border: 1px solid var(--text-dim);
-  background: white;
+  background: var(--bg);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -117,7 +117,7 @@
 }
 
 .compare-label.match {
-  background: #e6f4e9;
+  background: var(--success-bg);
   color: var(--success);
 }
 .compare-label.diff {
@@ -125,7 +125,7 @@
   color: var(--error);
 }
 .compare-label.gt {
-  background: #eef4fd;
+  background: var(--accent-bg);
   color: var(--accent);
 }
 .compare-label.gt.dirty {
@@ -146,7 +146,7 @@
   border-radius: 4px;
   border: 1px solid var(--text-bbb);
   cursor: pointer;
-  background: white;
+  background: var(--bg);
 }
 
 .gt-actions button:disabled {
@@ -193,7 +193,7 @@
 }
 
 .compare-diff-list code {
-  background: white;
+  background: var(--bg);
   padding: 0.1em 0.4em;
   border: 1px solid var(--text-ddd);
   border-radius: 3px;

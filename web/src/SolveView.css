@@ -68,7 +68,7 @@
 }
 
 .solve-header .back-link {
-  color: #6b6b6b;
+  color: var(--text-muted);
   text-decoration: none;
 }
 
@@ -462,13 +462,13 @@
 
 .solve-picker-badge.badge-correct {
   background: var(--success-bg);
-  border-color: #b1d7a3;
+  border-color: var(--success);
   color: var(--success-strong);
 }
 
 .solve-picker-badge.badge-incorrect {
   background: var(--error-bg);
-  border-color: #e2a3a3;
+  border-color: var(--error-border);
   color: var(--error-strong);
 }
 

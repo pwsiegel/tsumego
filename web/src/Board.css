@@ -1,3 +1,8 @@
+/* Board renders with fixed colors regardless of theme — wood + black/white
+ * stones are universal Go conventions; flipping them in dark mode would
+ * just be confusing. Hex literals (rather than theme vars) are used
+ * deliberately so adding a dark-theme override later is an explicit
+ * choice, not an accidental side-effect of editing theme.css. */
 .board {
   width: 100%;
   max-width: 720px;
@@ -7,16 +12,16 @@
 }
 
 .board-bg {
-  fill: var(--warning-amber);
+  fill: #e6b871;
 }
 
 .grid-line {
-  stroke: var(--warning-deep);
+  stroke: #2b1d10;
   stroke-width: 1;
 }
 
 .star-point {
-  fill: var(--warning-deep);
+  fill: #2b1d10;
 }
 
 .coord-label text {
@@ -27,28 +32,28 @@
 }
 
 .stone-black {
-  fill: var(--text);
-  stroke: var(--text);
+  fill: #222222;
+  stroke: #222222;
   stroke-width: 0.5;
   pointer-events: none;  /* let clicks pass through to the hit rect below */
 }
 
 .stone-white {
-  fill: var(--bg-subtle);
-  stroke: var(--text);
+  fill: #fafafa;
+  stroke: #222222;
   stroke-width: 1;
   pointer-events: none;
 }
 
 .label-on-black {
-  fill: var(--bg);
+  fill: #ffffff;
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
 }
 
 .label-on-white {
-  fill: var(--text);
+  fill: #222222;
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
@@ -58,12 +63,12 @@
  * masks the grid line crossing under the number, with the same dark
  * text used elsewhere on board. */
 .move-number-halo {
-  fill: var(--warning-amber);
+  fill: #e6b871;
   pointer-events: none;
 }
 
 .move-number-empty {
-  fill: var(--warning-deep);
+  fill: #2b1d10;
   font-family: system-ui, sans-serif;
   font-weight: 600;
   pointer-events: none;
@@ -75,7 +80,7 @@
 }
 
 .hit:hover {
-  fill: var(--overlay-08);
+  fill: rgba(0, 0, 0, 0.08);
 }
 
 .board.display-only .hit { cursor: default; }
