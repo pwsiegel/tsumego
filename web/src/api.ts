@@ -165,6 +165,53 @@ export type BoardTJunctionEdges = {
   stone_edges: StoneEdgeClass[];
 };
 
+export type PatchBBox = {
+  bbox_idx: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  existing_problem_id: string | null;
+};
+
+export type PatchPage = {
+  page_idx: number;
+  image_w: number;
+  image_h: number;
+  bboxes: PatchBBox[];
+};
+
+export type PatchSessionPhase =
+  | 'rendering' | 'detecting' | 'ready' | 'applying' | 'done' | 'error';
+
+export type PatchSession = {
+  session_id: string;
+  source: string;
+  phase: PatchSessionPhase;
+  started_at: string;
+  updated_at: string;
+  total_pages: number | null;
+  pages_rendered: number;
+  pages_detected: number;
+  pages: PatchPage[];
+  align_warnings: string[];
+  error: string | null;
+};
+
+export type PatchAddBBox = {
+  page_idx: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+};
+
+export type PatchApplyResponse = {
+  deleted: number;
+  added: number;
+  reindexed: number;
+};
+
 export type IngestJobPhase = 'rendering' | 'detecting' | 'done' | 'error';
 
 export type IngestJob = {
@@ -595,6 +642,43 @@ export const api = {
     async dismissJob(job_id: string): Promise<void> {
       const res = await fetch(
         `/api/pdf/jobs/${encodeURIComponent(job_id)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) throw new Error(`dismiss failed: ${res.status}`);
+    },
+
+    async startPatchSession(source: string, file: File): Promise<string> {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const r = await fetch(
+        `/api/pdf/patch-sessions?source=${encodeURIComponent(source)}`,
+        { method: 'POST', body: form },
+      );
+      if (!r.ok) throw new Error(`start failed: ${r.status} ${r.statusText}`);
+      const j = (await r.json()) as { session_id: string };
+      return j.session_id;
+    },
+    getPatchSession(session_id: string): Promise<PatchSession> {
+      return request<PatchSession>(
+        `/api/pdf/patch-sessions/${encodeURIComponent(session_id)}`, NO_STORE,
+      );
+    },
+    patchPageImageUrl(session_id: string, page_idx: number): string {
+      return `/api/pdf/patch-sessions/${encodeURIComponent(session_id)}/pages/${page_idx}.png`;
+    },
+    applyPatchSession(
+      session_id: string,
+      deletes: string[],
+      adds: PatchAddBBox[],
+    ): Promise<PatchApplyResponse> {
+      return postJson<PatchApplyResponse>(
+        `/api/pdf/patch-sessions/${encodeURIComponent(session_id)}/apply`,
+        { deletes, adds },
+      );
+    },
+    async dismissPatchSession(session_id: string): Promise<void> {
+      const res = await fetch(
+        `/api/pdf/patch-sessions/${encodeURIComponent(session_id)}`,
         { method: 'DELETE' },
       );
       if (!res.ok) throw new Error(`dismiss failed: ${res.status}`);

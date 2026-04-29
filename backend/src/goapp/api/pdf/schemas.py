@@ -183,3 +183,59 @@ class IngestJobsResponse(BaseModel):
 
 class IngestJobStartResponse(BaseModel):
     job_id: str
+
+
+# --- patch sessions: edit bboxes + apply diff to an existing collection ---
+
+
+class PatchSessionStartResponse(BaseModel):
+    session_id: str
+
+
+class PatchBBoxOut(BaseModel):
+    bbox_idx: int
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    existing_problem_id: str | None = None
+
+
+class PatchPageOut(BaseModel):
+    page_idx: int
+    image_w: int
+    image_h: int
+    bboxes: list[PatchBBoxOut]
+
+
+class PatchSessionOut(BaseModel):
+    session_id: str
+    source: str
+    phase: Literal["rendering", "detecting", "ready", "applying", "done", "error"]
+    started_at: str
+    updated_at: str
+    total_pages: int | None
+    pages_rendered: int
+    pages_detected: int
+    pages: list[PatchPageOut]
+    align_warnings: list[str]
+    error: str | None
+
+
+class PatchAddBBox(BaseModel):
+    page_idx: int
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+
+
+class PatchApplyRequest(BaseModel):
+    deletes: list[str] = []   # existing_problem_id values to remove
+    adds: list[PatchAddBBox] = []
+
+
+class PatchApplyResponse(BaseModel):
+    deleted: int
+    added: int
+    reindexed: int

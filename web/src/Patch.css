@@ -1,0 +1,179 @@
+.patch-root {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 4rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.patch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.patch-header h1 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.patch-header a {
+  color: var(--text-faint);
+  text-decoration: none;
+  font-size: 0.85rem;
+  margin-right: 0.75rem;
+}
+.patch-header a:hover { color: var(--text); text-decoration: underline; }
+
+.patch-walker-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.patch-walker-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  border: 1px solid var(--text-bbb);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.patch-walker-actions button:hover:enabled { background: var(--bg-muted); }
+.patch-walker-actions button:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.patch-skip-btn {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+.patch-skip-btn:hover:enabled { background: var(--accent-bg) !important; }
+
+.patch-canvas {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  user-select: none;
+  align-self: center;
+  max-width: 100%;
+}
+
+.patch-canvas img {
+  display: block;
+  max-width: 100%;
+  max-height: 82vh;
+  width: auto;
+  height: auto;
+}
+
+.patch-bbox {
+  position: absolute;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.patch-bbox-existing {
+  border-color: rgba(42, 143, 63, 0.85);
+  background: rgba(42, 143, 63, 0.08);
+}
+.patch-bbox-existing:hover {
+  background: rgba(42, 143, 63, 0.18);
+}
+
+.patch-bbox-deleted {
+  border-color: rgba(192, 48, 48, 0.95);
+  background: rgba(192, 48, 48, 0.18);
+  border-style: dashed;
+}
+
+.patch-bbox-orphan {
+  border-color: rgba(150, 150, 150, 0.7);
+  background: rgba(150, 150, 150, 0.08);
+  border-style: dotted;
+  cursor: default;
+}
+
+.patch-bbox-added {
+  border-color: rgba(33, 110, 200, 0.95);
+  background: rgba(33, 110, 200, 0.18);
+}
+
+.patch-bbox-drag {
+  border-color: rgba(33, 110, 200, 0.6);
+  background: rgba(33, 110, 200, 0.08);
+  border-style: dashed;
+  pointer-events: none;
+}
+
+.patch-help {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.patch-error {
+  color: var(--error-c33);
+  margin: 0.5rem 0;
+}
+
+.patch-counts {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 1rem;
+}
+.patch-counts .patch-deleted { color: var(--error); }
+.patch-counts .patch-added { color: var(--accent); }
+
+.patch-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.patch-actions button {
+  padding: 0.6rem 1.1rem;
+  border-radius: 6px;
+  border: 1px solid var(--text-bbb);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.patch-actions button:hover:enabled { background: var(--bg-muted); }
+.patch-apply-btn {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: white !important;
+}
+.patch-apply-btn:hover:enabled { background: var(--accent-hover) !important; }
+
+.patch-warnings {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-amber);
+  border-radius: 4px;
+  padding: 0.6rem 0.9rem;
+  color: var(--warning-strong);
+  font-size: 0.9rem;
+}
+.patch-warnings h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+.patch-warnings ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}

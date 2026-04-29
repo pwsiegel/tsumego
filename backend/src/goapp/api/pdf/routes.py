@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
-from ... import gcs, ingest_jobs
+from ... import gcs, ingest_jobs, patch_sessions
 from ...auth import user_id_from_request
 from ...ml.pipeline import (
     _board_crop,
@@ -38,6 +38,12 @@ from .schemas import (
     IngestJobsResponse,
     IngestJobStartResponse,
     JunctionOut,
+    PatchApplyRequest,
+    PatchApplyResponse,
+    PatchBBoxOut,
+    PatchPageOut,
+    PatchSessionOut,
+    PatchSessionStartResponse,
     SegmentOut,
     SideTallyOut,
     StoneCenterOut,
@@ -562,4 +568,117 @@ def pdf_job_dismiss_endpoint(job_id: str, user_id: str = UserId) -> Response:
     """Remove a job's state + staged PDF entirely."""
     if not ingest_jobs.delete_job(user_id, job_id):
         raise HTTPException(status_code=404, detail="job not found")
+    return Response(status_code=204)
+
+
+# --- patch sessions: edit bboxes for an existing collection ---
+
+
+def _patch_session_to_schema(state: dict) -> PatchSessionOut:
+    pages_dict = state.get("pages") or {}
+    pages_out: list[PatchPageOut] = []
+    for k in sorted(pages_dict.keys(), key=int):
+        page = pages_dict[k]
+        pages_out.append(PatchPageOut(
+            page_idx=int(k),
+            image_w=page.get("image_w", 0),
+            image_h=page.get("image_h", 0),
+            bboxes=[PatchBBoxOut(**b) for b in page.get("bboxes", [])],
+        ))
+    return PatchSessionOut(
+        session_id=state["session_id"],
+        source=state.get("source", ""),
+        phase=state.get("phase", "rendering"),
+        started_at=state.get("started_at", ""),
+        updated_at=state.get("updated_at", ""),
+        total_pages=state.get("total_pages"),
+        pages_rendered=state.get("pages_rendered", 0),
+        pages_detected=state.get("pages_detected", 0),
+        pages=pages_out,
+        align_warnings=state.get("align_warnings", []),
+        error=state.get("error"),
+    )
+
+
+def _spawn_patch_session(user_id: str, session_id: str) -> None:
+    threading.Thread(
+        target=patch_sessions.run_session,
+        args=(user_id, session_id),
+        daemon=True,
+    ).start()
+
+
+@router.post("/patch-sessions", response_model=PatchSessionStartResponse)
+async def patch_session_start_endpoint(
+    source: str,
+    file: UploadFile = File(...),
+    user_id: str = UserId,
+) -> PatchSessionStartResponse:
+    """Upload the source PDF and kick off a re-detect+align job. The
+    client polls `/patch-sessions/{id}` until phase=ready, then walks
+    pages and finally POSTs apply."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
+    session_id = patch_sessions.new_session_id()
+    patch_sessions.create_session(user_id, session_id, source)
+    patch_sessions.source_pdf_path(user_id, session_id).write_bytes(content)
+    _spawn_patch_session(user_id, session_id)
+    return PatchSessionStartResponse(session_id=session_id)
+
+
+@router.get("/patch-sessions/{session_id}", response_model=PatchSessionOut)
+def patch_session_get_endpoint(
+    session_id: str, user_id: str = UserId,
+) -> PatchSessionOut:
+    state = patch_sessions.load_state(user_id, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return _patch_session_to_schema(state)
+
+
+@router.get("/patch-sessions/{session_id}/pages/{page_idx}.png")
+def patch_session_page_endpoint(
+    session_id: str, page_idx: int, user_id: str = UserId,
+) -> Response:
+    p = patch_sessions.page_image_path(user_id, session_id, page_idx)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"page {page_idx} not found")
+    return Response(content=p.read_bytes(), media_type="image/png")
+
+
+@router.post(
+    "/patch-sessions/{session_id}/apply", response_model=PatchApplyResponse,
+)
+def patch_session_apply_endpoint(
+    session_id: str, req: PatchApplyRequest, user_id: str = UserId,
+) -> PatchApplyResponse:
+    state = patch_sessions.load_state(user_id, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    if state.get("phase") != "ready":
+        raise HTTPException(
+            status_code=409, detail=f"session phase is {state.get('phase')}, not ready",
+        )
+    try:
+        result = patch_sessions.apply_session(
+            user_id, session_id,
+            {
+                "deletes": req.deletes,
+                "adds": [a.model_dump() for a in req.adds],
+            },
+        )
+    except Exception as e:
+        log.exception("patch apply failed")
+        patch_sessions.mark_error(user_id, session_id, str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return PatchApplyResponse(**result)
+
+
+@router.delete("/patch-sessions/{session_id}")
+def patch_session_dismiss_endpoint(
+    session_id: str, user_id: str = UserId,
+) -> Response:
+    if not patch_sessions.delete_session(user_id, session_id):
+        raise HTTPException(status_code=404, detail="session not found")
     return Response(status_code=204)

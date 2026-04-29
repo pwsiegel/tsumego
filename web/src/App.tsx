@@ -10,6 +10,7 @@ import { Collection } from './Collection';
 import { Compare } from './Compare';
 import { HealthGate } from './HealthGate';
 import { Home } from './Home';
+import { Patch } from './Patch';
 import { ProblemDetail } from './ProblemDetail';
 import { Profile } from './Profile';
 import { Review } from './Review';
@@ -78,6 +79,7 @@ function App() {
         <Route path="/reviewed" element={<Reviewed />} />
         <Route path="/submissions/:sent_at" element={<Submission />} />
         <Route path="/collections/:source/edit" element={<Collection />} />
+        <Route path="/collections/:source/patch" element={<Patch />} />
         <Route path="/collections/:source/review" element={<Review />} />
         <Route path="/collections/:source/problem/:id" element={<ProblemDetail />} />
         <Route path="/collections/:source/solve" element={<SolveEntry />} />
