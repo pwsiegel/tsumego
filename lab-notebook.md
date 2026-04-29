@@ -926,10 +926,22 @@ and **relink the 16 historical attempts by stone-fingerprint**
 (sorted (col,row,color) tuple + black_to_play). Snapshot system kept
 the submissions viewable; the relink restored Retry-incorrect.
 
-Status: **in use**. Future direction (per user 2026-04-29): move the
-patch UI into the upload flow so detection-correction happens *before*
-problems land in the home-screen library, instead of as a post-hoc
-operation on a saved collection.
+**Update 2026-04-29 (same day):** the post-hoc "patch a saved
+collection" framing was scrapped after that first use exposed the
+local↔prod ID-divergence trap. Patch sessions are now the upload
+flow itself: `Upload.tsx` posts the PDF to a patch session, the
+client routes to `/upload/{session_id}` for the bbox walker, and
+apply ingests fresh — no alignment, no deletes-by-ID, no reindex.
+`source_board_idx` is assigned 0..N in `(page_idx, bbox_idx)` order
+over surviving + added bboxes. Apply runs in a background thread
+and the home page polls `/patch-sessions` for an inline progress
+card that auto-dismisses when `phase=done`. The `/collections/:source/patch`
+route and the "Patch detection…" button on the collection page are
+gone. Why the rewrite over keeping both paths: the alignment+diff
+machinery only paid off if you were patching prod, and the right way
+to patch prod is to fix detection on local and re-push the whole
+collection (the wipe-and-replace + fingerprint-relink workflow we
+already proved out).
 
 ## Open questions / unresolved threads
 
