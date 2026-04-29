@@ -904,6 +904,33 @@ records were purged from local + GCS to start fresh.
 Self-links (`add_teacher(uid, uid)`) are now allowed: in dev mode the
 single `local` user wears both hats.
 
+## 2026-04-29 — patch sessions for fixing detection on a saved collection
+
+After the snapshot system decoupled submission history from problem IDs
+(2026-04-28), it became safe to mutate a saved collection's problem set
+without breaking past submissions. Built a "patch session" flow on top:
+re-upload the source PDF, re-run YOLO board detection, align the new
+bboxes to the saved problems by `(page_idx, bbox_idx)`, and walk the
+user through every page with the patch UI (click an existing bbox to
+mark for delete, drag empty space to add a new bbox). Apply ingests new
+bboxes via the standard pipeline, removes the deleted ones, and
+reindexes `source_board_idx` contiguously over the surviving set.
+
+First real use was patching tesuji.pdf (mostly fused-board cases). Hit
+a footgun mid-push: the patch was applied to user_id=`local` but the
+prod copy lives under `7a692608e710b808`, and the two had been
+ingested independently — zero shared problem IDs. So an incremental
+diff push wasn't possible without redoing the UI walk against the prod
+mirror. Workaround: wipe-and-replace remote (1034 → 1052 problems)
+and **relink the 16 historical attempts by stone-fingerprint**
+(sorted (col,row,color) tuple + black_to_play). Snapshot system kept
+the submissions viewable; the relink restored Retry-incorrect.
+
+Status: **in use**. Future direction (per user 2026-04-29): move the
+patch UI into the upload flow so detection-correction happens *before*
+problems land in the home-screen library, instead of as a post-hoc
+operation on a saved collection.
+
 ## Open questions / unresolved threads
 
 1. **What specific failure does "shit pipeline results" mean?** We have
