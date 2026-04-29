@@ -104,10 +104,21 @@ def _problem_summary(p: dict) -> ProblemSummary:
     )
 
 
+def _problem_for_attempt(user_id: str, a: dict) -> dict | None:
+    """Snapshot first, live problem second. The snapshot is written at
+    send time so submission history survives later edits/deletions to
+    the underlying problem; pre-feature attempts and unsent attempts
+    fall back to the live record."""
+    snap = a.get("problem_snapshot")
+    if snap:
+        return snap
+    return load_problem(user_id, a["problem_id"])
+
+
 def _bundle(user_id: str, attempts: list[dict]) -> list[AttemptWithProblem]:
     out: list[AttemptWithProblem] = []
     for a in attempts:
-        p = load_problem(user_id, a["problem_id"])
+        p = _problem_for_attempt(user_id, a)
         if p is None:
             continue
         out.append(AttemptWithProblem(
@@ -122,7 +133,7 @@ def _teacher_bundle(
 ) -> list[TeacherAttemptWithProblem]:
     out: list[TeacherAttemptWithProblem] = []
     for a in attempts:
-        p = load_problem(student_uid, a["problem_id"])
+        p = _problem_for_attempt(student_uid, a)
         if p is None:
             continue
         out.append(TeacherAttemptWithProblem(
@@ -204,7 +215,11 @@ def send_batch_endpoint(
     if not req.teacher_user_id:
         raise HTTPException(status_code=400, detail="teacher_user_id required")
     try:
-        sent = send_to_reviewer(user_id, req.teacher_user_id)
+        sent = send_to_reviewer(
+            user_id,
+            req.teacher_user_id,
+            lambda pid: load_problem(user_id, pid),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     sent_at = sent[0]["sent_at"] if sent else ""
@@ -329,7 +344,7 @@ def teacher_attempt_endpoint(
     a = load_attempt(student_uid, attempt_id)
     if a is None or user_id not in a.get("sent_to", []):
         raise HTTPException(status_code=404, detail=attempt_id)
-    p = load_problem(student_uid, a["problem_id"])
+    p = _problem_for_attempt(student_uid, a)
     if p is None:
         raise HTTPException(status_code=404, detail="problem missing")
     return TeacherAttemptWithProblem(

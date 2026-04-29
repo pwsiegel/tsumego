@@ -35,6 +35,7 @@ import json
 import secrets
 import time
 from pathlib import Path
+from typing import Callable
 
 from .links import is_teacher_of
 from .paths import attempts_dir
@@ -56,7 +57,31 @@ def _normalize_attempt(a: dict) -> dict:
     out.setdefault("sent_at", None)
     out.setdefault("acked_at", None)
     out.setdefault("reviews", {})
+    out.setdefault("problem_snapshot", None)
     return out
+
+
+def make_problem_snapshot(problem: dict) -> dict:
+    """Frozen copy of the problem fields a submission view needs to render.
+
+    Written into the attempt at send time so submission/teacher views stay
+    consistent if the underlying problem is later edited or deleted. Keep
+    this list in sync with whatever the submission/teacher routes pull
+    out of `_problem_summary`.
+    """
+    return {
+        "id": problem["id"],
+        "source": problem["source"],
+        "source_board_idx": problem["source_board_idx"],
+        "page_idx": problem.get("page_idx"),
+        "bbox_idx": problem.get("bbox_idx"),
+        "black_to_play": problem.get("black_to_play", True),
+        "image": problem.get("image"),
+        "stones": [
+            {"col": int(s["col"]), "row": int(s["row"]), "color": str(s["color"])}
+            for s in problem.get("stones", [])
+        ],
+    }
 
 
 # --- attempts ---
@@ -152,11 +177,22 @@ def remove_from_batch(user_id: str, problem_id: str) -> int:
     return removed
 
 
-def send_to_reviewer(student_uid: str, reviewer_uid: str) -> list[dict]:
+def send_to_reviewer(
+    student_uid: str,
+    reviewer_uid: str,
+    problem_loader: Callable[[str], dict | None],
+) -> list[dict]:
     """Send all unsent attempts (latest per problem) to a single reviewer
     as one submission. Earlier unsent attempts on the same problem are
     superseded — they get marked sent with no recipient so they don't
-    keep showing up in the outbox. Returns the just-sent attempts."""
+    keep showing up in the outbox. Returns the just-sent attempts.
+
+    Each attempt that gets a real recipient also gets `problem_snapshot`
+    populated via `problem_loader(problem_id)` — this freezes the
+    rendered position so submission history stays correct if the
+    underlying problem changes or is deleted later. Superseded attempts
+    are also snapshotted as a courtesy (cheap; same problem, same disk
+    write); skipped only if the loader can't find the problem."""
     if not is_teacher_of(reviewer_uid, student_uid):
         raise ValueError(f"{reviewer_uid!r} is not a linked teacher of {student_uid!r}")
 
@@ -166,6 +202,7 @@ def send_to_reviewer(student_uid: str, reviewer_uid: str) -> list[dict]:
     )
     stamp = _now()
     sent_now: list[dict] = []
+    snap_cache: dict[str, dict | None] = {}
     for a in all_attempts:
         if a.get("sent_at") is not None:
             continue
@@ -174,6 +211,12 @@ def send_to_reviewer(student_uid: str, reviewer_uid: str) -> list[dict]:
             a["sent_to"] = [reviewer_uid]
             sent_now.append(a)
         a["sent_at"] = stamp
+        pid = a["problem_id"]
+        if pid not in snap_cache:
+            p = problem_loader(pid)
+            snap_cache[pid] = make_problem_snapshot(p) if p is not None else None
+        if snap_cache[pid] is not None:
+            a["problem_snapshot"] = snap_cache[pid]
         _attempt_path(student_uid, a["id"]).write_text(json.dumps(a, indent=2))
     return sent_now
 
