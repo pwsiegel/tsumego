@@ -197,13 +197,6 @@ export function Collection() {
               </button>
               <button
                 className="delete-mode-btn"
-                onClick={() => navigate(`/collections/${encodeURIComponent(source)}/patch`)}
-                title="Re-run detection and add or remove bboxes"
-              >
-                Patch detection…
-              </button>
-              <button
-                className="delete-mode-btn"
                 onClick={enterSelect}
                 disabled={(problems?.length ?? 0) === 0}
               >

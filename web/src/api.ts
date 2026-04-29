@@ -171,7 +171,6 @@ export type PatchBBox = {
   y0: number;
   x1: number;
   y1: number;
-  existing_problem_id: string | null;
 };
 
 export type PatchPage = {
@@ -184,6 +183,12 @@ export type PatchPage = {
 export type PatchSessionPhase =
   | 'rendering' | 'detecting' | 'ready' | 'applying' | 'done' | 'error';
 
+export type PatchApplyProgress = {
+  total: number;
+  ingested: number;
+  failed: number;
+};
+
 export type PatchSession = {
   session_id: string;
   source: string;
@@ -194,8 +199,13 @@ export type PatchSession = {
   pages_rendered: number;
   pages_detected: number;
   pages: PatchPage[];
-  align_warnings: string[];
+  apply: PatchApplyProgress | null;
   error: string | null;
+};
+
+export type PatchSkipBBox = {
+  page_idx: number;
+  bbox_idx: number;
 };
 
 export type PatchAddBBox = {
@@ -206,10 +216,8 @@ export type PatchAddBBox = {
   y1: number;
 };
 
-export type PatchApplyResponse = {
-  deleted: number;
-  added: number;
-  reindexed: number;
+export type PatchApplyAck = {
+  session_id: string;
 };
 
 export type IngestJobPhase = 'rendering' | 'detecting' | 'done' | 'error';
@@ -647,16 +655,30 @@ export const api = {
       if (!res.ok) throw new Error(`dismiss failed: ${res.status}`);
     },
 
-    async startPatchSession(source: string, file: File): Promise<string> {
+    async startPatchSession(
+      file: File,
+      onProgress?: (frac: number) => void,
+    ): Promise<string> {
+      const cb = onProgress ?? (() => {});
+      const plan = await postJson<{ mode: 'signed-url' | 'multipart'; upload_id?: string; url?: string }>(
+        '/api/pdf/upload-url',
+        { filename: file.name },
+      );
+      if (plan.mode === 'signed-url' && plan.url && plan.upload_id) {
+        await putWithProgress(plan.url, file, cb);
+        cb(1);
+        const r = await postJson<{ session_id: string }>(
+          '/api/pdf/patch-sessions-from-upload',
+          { upload_id: plan.upload_id, filename: file.name },
+        );
+        return r.session_id;
+      }
       const form = new FormData();
       form.append('file', file, file.name);
-      const r = await fetch(
-        `/api/pdf/patch-sessions?source=${encodeURIComponent(source)}`,
-        { method: 'POST', body: form },
+      const r = await postWithProgress<{ session_id: string }>(
+        '/api/pdf/patch-sessions', form, cb,
       );
-      if (!r.ok) throw new Error(`start failed: ${r.status} ${r.statusText}`);
-      const j = (await r.json()) as { session_id: string };
-      return j.session_id;
+      return r.session_id;
     },
     getPatchSession(session_id: string): Promise<PatchSession> {
       return request<PatchSession>(
@@ -668,13 +690,18 @@ export const api = {
     },
     applyPatchSession(
       session_id: string,
-      deletes: string[],
+      skip: PatchSkipBBox[],
       adds: PatchAddBBox[],
-    ): Promise<PatchApplyResponse> {
-      return postJson<PatchApplyResponse>(
+    ): Promise<PatchApplyAck> {
+      return postJson<PatchApplyAck>(
         `/api/pdf/patch-sessions/${encodeURIComponent(session_id)}/apply`,
-        { deletes, adds },
+        { skip, adds },
       );
+    },
+    listPatchSessions(): Promise<PatchSession[]> {
+      return request<{ sessions: PatchSession[] }>(
+        '/api/pdf/patch-sessions', NO_STORE,
+      ).then((r) => r.sessions);
     },
     async dismissPatchSession(session_id: string): Promise<void> {
       const res = await fetch(

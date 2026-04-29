@@ -38,11 +38,13 @@ from .schemas import (
     IngestJobsResponse,
     IngestJobStartResponse,
     JunctionOut,
+    PatchApplyAck,
+    PatchApplyProgress,
     PatchApplyRequest,
-    PatchApplyResponse,
     PatchBBoxOut,
     PatchPageOut,
     PatchSessionOut,
+    PatchSessionsResponse,
     PatchSessionStartResponse,
     SegmentOut,
     SideTallyOut,
@@ -574,17 +576,34 @@ def pdf_job_dismiss_endpoint(job_id: str, user_id: str = UserId) -> Response:
 # --- patch sessions: edit bboxes for an existing collection ---
 
 
-def _patch_session_to_schema(state: dict) -> PatchSessionOut:
-    pages_dict = state.get("pages") or {}
+def _patch_session_to_schema(state: dict, *, with_pages: bool = True) -> PatchSessionOut:
+    """Schema-ify a session state. Set `with_pages=False` to skip the
+    bbox payload — the home page only needs phase/progress/source, and
+    serializing every detected bbox for every active session adds up."""
     pages_out: list[PatchPageOut] = []
-    for k in sorted(pages_dict.keys(), key=int):
-        page = pages_dict[k]
-        pages_out.append(PatchPageOut(
-            page_idx=int(k),
-            image_w=page.get("image_w", 0),
-            image_h=page.get("image_h", 0),
-            bboxes=[PatchBBoxOut(**b) for b in page.get("bboxes", [])],
-        ))
+    if with_pages:
+        pages_dict = state.get("pages") or {}
+        for k in sorted(pages_dict.keys(), key=int):
+            page = pages_dict[k]
+            pages_out.append(PatchPageOut(
+                page_idx=int(k),
+                image_w=page.get("image_w", 0),
+                image_h=page.get("image_h", 0),
+                bboxes=[
+                    PatchBBoxOut(
+                        bbox_idx=b["bbox_idx"],
+                        x0=b["x0"], y0=b["y0"], x1=b["x1"], y1=b["y1"],
+                    ) for b in page.get("bboxes", [])
+                ],
+            ))
+    apply = state.get("apply")
+    apply_out = (
+        PatchApplyProgress(
+            total=apply.get("total", 0),
+            ingested=apply.get("ingested", 0),
+            failed=apply.get("failed", 0),
+        ) if apply else None
+    )
     return PatchSessionOut(
         session_id=state["session_id"],
         source=state.get("source", ""),
@@ -595,7 +614,7 @@ def _patch_session_to_schema(state: dict) -> PatchSessionOut:
         pages_rendered=state.get("pages_rendered", 0),
         pages_detected=state.get("pages_detected", 0),
         pages=pages_out,
-        align_warnings=state.get("align_warnings", []),
+        apply=apply_out,
         error=state.get("error"),
     )
 
@@ -610,19 +629,43 @@ def _spawn_patch_session(user_id: str, session_id: str) -> None:
 
 @router.post("/patch-sessions", response_model=PatchSessionStartResponse)
 async def patch_session_start_endpoint(
-    source: str,
     file: UploadFile = File(...),
     user_id: str = UserId,
 ) -> PatchSessionStartResponse:
-    """Upload the source PDF and kick off a re-detect+align job. The
-    client polls `/patch-sessions/{id}` until phase=ready, then walks
-    pages and finally POSTs apply."""
+    """Multipart start (local-only). Stages the PDF and kicks off
+    render+detect. The client polls `/patch-sessions/{id}` until
+    phase=ready, then walks pages and finally POSTs apply to ingest
+    the kept + added bboxes."""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
+    source = file.filename or "uploaded.pdf"
     session_id = patch_sessions.new_session_id()
     patch_sessions.create_session(user_id, session_id, source)
     patch_sessions.source_pdf_path(user_id, session_id).write_bytes(content)
+    _spawn_patch_session(user_id, session_id)
+    return PatchSessionStartResponse(session_id=session_id)
+
+
+@router.post("/patch-sessions-from-upload", response_model=PatchSessionStartResponse)
+async def patch_session_from_upload_endpoint(
+    request: IngestFromUploadRequest,
+    user_id: str = UserId,
+) -> PatchSessionStartResponse:
+    """Start a patch session from a previously signed-URL-uploaded PDF.
+    Used in cloud where Cloud Run's 32 MiB request-body cap blocks the
+    multipart route."""
+    upload_path = uploads_dir(user_id) / f"{request.upload_id}.pdf"
+    if not upload_path.exists():
+        raise HTTPException(status_code=404, detail="upload not found")
+    session_id = patch_sessions.new_session_id()
+    patch_sessions.create_session(user_id, session_id, request.filename)
+    staged = patch_sessions.source_pdf_path(user_id, session_id)
+    staged.write_bytes(upload_path.read_bytes())
+    try:
+        upload_path.unlink()
+    except FileNotFoundError:
+        pass
     _spawn_patch_session(user_id, session_id)
     return PatchSessionStartResponse(session_id=session_id)
 
@@ -647,12 +690,24 @@ def patch_session_page_endpoint(
     return Response(content=p.read_bytes(), media_type="image/png")
 
 
+def _run_apply(user_id: str, session_id: str, edits: dict) -> None:
+    try:
+        patch_sessions.apply_session(user_id, session_id, edits)
+    except Exception as e:
+        log.exception("patch apply %s/%s failed", user_id, session_id)
+        patch_sessions.mark_error(user_id, session_id, str(e))
+
+
 @router.post(
-    "/patch-sessions/{session_id}/apply", response_model=PatchApplyResponse,
+    "/patch-sessions/{session_id}/apply", response_model=PatchApplyAck,
+    status_code=202,
 )
 def patch_session_apply_endpoint(
     session_id: str, req: PatchApplyRequest, user_id: str = UserId,
-) -> PatchApplyResponse:
+) -> PatchApplyAck:
+    """Kick off the ingest in a background thread and return immediately.
+    The client polls `/patch-sessions` (or this session's GET) to see
+    progress in `apply.{total,ingested,failed}`."""
     state = patch_sessions.load_state(user_id, session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -660,19 +715,24 @@ def patch_session_apply_endpoint(
         raise HTTPException(
             status_code=409, detail=f"session phase is {state.get('phase')}, not ready",
         )
-    try:
-        result = patch_sessions.apply_session(
-            user_id, session_id,
-            {
-                "deletes": req.deletes,
-                "adds": [a.model_dump() for a in req.adds],
-            },
-        )
-    except Exception as e:
-        log.exception("patch apply failed")
-        patch_sessions.mark_error(user_id, session_id, str(e))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    return PatchApplyResponse(**result)
+    edits = {
+        "skip": [s.model_dump() for s in req.skip],
+        "adds": [a.model_dump() for a in req.adds],
+    }
+    threading.Thread(
+        target=_run_apply, args=(user_id, session_id, edits), daemon=True,
+    ).start()
+    return PatchApplyAck(session_id=session_id)
+
+
+@router.get("/patch-sessions", response_model=PatchSessionsResponse)
+def patch_sessions_list_endpoint(user_id: str = UserId) -> PatchSessionsResponse:
+    """Lightweight list for the home-page progress card. Drops the per-
+    page bbox payload (which can be large for big PDFs)."""
+    return PatchSessionsResponse(sessions=[
+        _patch_session_to_schema(s, with_pages=False)
+        for s in patch_sessions.list_sessions(user_id)
+    ])
 
 
 @router.delete("/patch-sessions/{session_id}")

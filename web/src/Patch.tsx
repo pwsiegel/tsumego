@@ -1,65 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   api,
   type PatchAddBBox,
   type PatchPage,
   type PatchSession,
+  type PatchSkipBBox,
 } from './api';
 import './Patch.css';
 
 type Edits = {
-  // existing_problem_id values to delete
-  deletes: Set<string>;
-  // new bboxes keyed by page_idx
+  // (page_idx, bbox_idx) of detected bboxes the user wants to drop
+  skipsByPage: Map<number, Set<number>>;
+  // user-drawn bboxes keyed by page_idx
   addsByPage: Map<number, PatchAddBBox[]>;
 };
 
 function emptyEdits(): Edits {
-  return { deletes: new Set(), addsByPage: new Map() };
+  return { skipsByPage: new Map(), addsByPage: new Map() };
 }
 
-function totalEdits(edits: Edits): { kept: number; deleted: number; added: number } {
+function totalEdits(edits: Edits): { skipped: number; added: number } {
+  let skipped = 0;
+  for (const v of edits.skipsByPage.values()) skipped += v.size;
   let added = 0;
   for (const v of edits.addsByPage.values()) added += v.length;
-  return { kept: 0, deleted: edits.deletes.size, added };
+  return { skipped, added };
 }
 
 export function Patch() {
-  const { source: encSource = '' } = useParams();
-  const source = decodeURIComponent(encSource);
-  const [params] = useSearchParams();
-  const sessionIdFromUrl = params.get('session');
+  const { sessionId = '' } = useParams();
   const navigate = useNavigate();
 
-  const [stage, setStage] = useState<'pick' | 'starting' | 'walk' | 'confirm' | 'applying' | 'done'>(
-    sessionIdFromUrl ? 'walk' : 'pick',
-  );
-  const [sessionId, setSessionId] = useState<string | null>(sessionIdFromUrl);
+  const [stage, setStage] = useState<'walk' | 'confirm' | 'applying'>('walk');
   const [session, setSession] = useState<PatchSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageCursor, setPageCursor] = useState(0);
   const [edits, setEdits] = useState<Edits>(emptyEdits);
-  const [applyResult, setApplyResult] = useState<
-    { deleted: number; added: number; reindexed: number } | null
-  >(null);
 
-  // ---- start: upload PDF ----
-
-  const onFileChosen = async (file: File) => {
-    setStage('starting');
-    setError(null);
-    try {
-      const sid = await api.pdf.startPatchSession(source, file);
-      setSessionId(sid);
-      navigate(`?session=${sid}`, { replace: true });
-    } catch (e) {
-      setError(String(e));
-      setStage('pick');
-    }
-  };
-
-  // ---- poll session state until ready (or done) ----
+  // ---- poll session state until ready ----
 
   useEffect(() => {
     if (!sessionId) return;
@@ -69,17 +48,13 @@ export function Patch() {
         const s = await api.pdf.getPatchSession(sessionId);
         if (cancelled) return;
         setSession(s);
-        if (s.phase === 'ready' && stage === 'starting') setStage('walk');
-        if (s.phase === 'error') {
-          setError(s.error || 'session failed');
-        }
+        if (s.phase === 'error') setError(s.error || 'session failed');
       } catch (e) {
         if (!cancelled) setError(String(e));
       }
     };
     tick();
     const interval = setInterval(() => {
-      // Stop polling once we have a terminal-ish state with everything we need.
       if (session && (session.phase === 'ready' || session.phase === 'done' || session.phase === 'error')) {
         return;
       }
@@ -100,7 +75,6 @@ export function Patch() {
   useEffect(() => {
     if (stage !== 'walk') return;
     const onKey = (e: KeyboardEvent) => {
-      // Don't fight inputs.
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (e.key === 'Enter' || e.key === 'ArrowRight') {
@@ -117,11 +91,14 @@ export function Patch() {
 
   // ---- per-page edit handlers ----
 
-  const toggleDelete = (pid: string) => {
+  const toggleSkip = (page_idx: number, bbox_idx: number) => {
     setEdits((prev) => {
-      const next = { ...prev, deletes: new Set(prev.deletes) };
-      if (next.deletes.has(pid)) next.deletes.delete(pid);
-      else next.deletes.add(pid);
+      const next = { ...prev, skipsByPage: new Map(prev.skipsByPage) };
+      const set = new Set(next.skipsByPage.get(page_idx) ?? []);
+      if (set.has(bbox_idx)) set.delete(bbox_idx);
+      else set.add(bbox_idx);
+      if (set.size === 0) next.skipsByPage.delete(page_idx);
+      else next.skipsByPage.set(page_idx, set);
       return next;
     });
   };
@@ -152,15 +129,16 @@ export function Patch() {
     setStage('applying');
     setError(null);
     try {
+      const skip: PatchSkipBBox[] = [];
+      for (const [page_idx, set] of edits.skipsByPage.entries()) {
+        for (const bbox_idx of set) skip.push({ page_idx, bbox_idx });
+      }
       const adds: PatchAddBBox[] = [];
       for (const list of edits.addsByPage.values()) adds.push(...list);
-      const result = await api.pdf.applyPatchSession(
-        sessionId,
-        Array.from(edits.deletes),
-        adds,
-      );
-      setApplyResult(result);
-      setStage('done');
+      // Apply runs in the background — bounce home, where the progress
+      // card picks up via patch-sessions polling.
+      await api.pdf.applyPatchSession(sessionId, skip, adds);
+      navigate('/');
     } catch (e) {
       setError(String(e));
       setStage('confirm');
@@ -169,36 +147,20 @@ export function Patch() {
 
   // ---- render ----
 
-  if (stage === 'pick') {
+  if (!sessionId) {
     return (
       <div className="patch-root">
-        <div className="patch-header">
-          <Link to={`/collections/${encodeURIComponent(source)}/edit`}>← Back</Link>
-          <h1>Patch detection: {source}</h1>
-        </div>
-        <p>
-          Upload the original source PDF. We'll re-run board detection,
-          then walk you through every page so you can add missed bboxes
-          or delete bad ones. Existing problems' IDs are preserved.
-        </p>
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onFileChosen(f);
-          }}
-        />
-        {error && <p className="patch-error">{error}</p>}
+        <p>Missing session id.</p>
+        <Link to="/upload">Upload a PDF</Link>
       </div>
     );
   }
 
-  if (stage === 'starting' || (stage === 'walk' && (!session || session.phase !== 'ready'))) {
+  if (!session || session.phase !== 'ready') {
     return (
       <div className="patch-root">
         <div className="patch-header">
-          <h1>Patch detection: {source}</h1>
+          <h1>Detecting boards{session?.source ? `: ${session.source}` : ''}</h1>
         </div>
         <p>
           {session
@@ -210,55 +172,44 @@ export function Patch() {
     );
   }
 
-  if (stage === 'walk' && session && currentPage && sessionId) {
+  if (stage === 'walk' && currentPage) {
     return (
       <PatchWalker
         sessionId={sessionId}
+        source={session.source}
         page={currentPage}
         pageCursor={pageCursor}
         totalPages={pages.length}
         edits={edits}
-        onToggleDelete={toggleDelete}
+        onToggleSkip={(bbox_idx) => toggleSkip(currentPage.page_idx, bbox_idx)}
         onAddBbox={(b) => addBbox(currentPage.page_idx, b)}
         onRemoveAdd={(i) => removeAdd(currentPage.page_idx, i)}
         onPrev={() => setPageCursor((c) => Math.max(0, c - 1))}
         onNext={() => setPageCursor((c) => Math.min(pages.length - 1, c + 1))}
-        onJump={(i) => setPageCursor(i)}
         onSkipRemaining={() => setStage('confirm')}
       />
     );
   }
 
-  if (stage === 'confirm' && session) {
+  if (stage === 'confirm') {
     const counts = totalEdits(edits);
-    const totalProblems = session.pages.reduce(
-      (n, p) => n + p.bboxes.filter((b) => b.existing_problem_id).length,
-      0,
-    );
-    const kept = totalProblems - counts.deleted;
+    const totalDetected = session.pages.reduce((n, p) => n + p.bboxes.length, 0);
+    const kept = totalDetected - counts.skipped;
     return (
       <div className="patch-root">
         <div className="patch-header">
-          <h1>Confirm patch: {source}</h1>
+          <h1>Confirm ingest: {session.source}</h1>
         </div>
         <ul className="patch-counts">
-          <li>{kept} problems kept</li>
-          <li className="patch-deleted">{counts.deleted} problems to delete</li>
-          <li className="patch-added">{counts.added} new bboxes to ingest</li>
+          <li>{kept} detected boards to ingest</li>
+          <li className="patch-deleted">{counts.skipped} detected boards skipped</li>
+          <li className="patch-added">{counts.added} added boards to ingest</li>
         </ul>
-        {session.align_warnings.length > 0 && (
-          <div className="patch-warnings">
-            <h3>Alignment warnings</h3>
-            <ul>
-              {session.align_warnings.map((w) => (
-                <li key={w}>{w}</li>
-              ))}
-            </ul>
-          </div>
-        )}
         <div className="patch-actions">
           <button onClick={() => setStage('walk')}>Back to walker</button>
-          <button onClick={apply} className="patch-apply-btn">Apply</button>
+          <button onClick={apply} className="patch-apply-btn">
+            Ingest {kept + counts.added}
+          </button>
         </div>
         {error && <p className="patch-error">{error}</p>}
       </div>
@@ -268,29 +219,7 @@ export function Patch() {
   if (stage === 'applying') {
     return (
       <div className="patch-root">
-        <h1>Applying…</h1>
-      </div>
-    );
-  }
-
-  if (stage === 'done' && applyResult) {
-    return (
-      <div className="patch-root">
-        <h1>Patch complete</h1>
-        <ul className="patch-counts">
-          <li>{applyResult.deleted} problems deleted</li>
-          <li>{applyResult.added} new problems ingested</li>
-          <li>{applyResult.reindexed} problems reindexed</li>
-        </ul>
-        <p>
-          Local collection updated. To push the result to prod, run:
-          <code style={{ display: 'block', marginTop: '0.5rem' }}>
-            python -m goapp.cli.push_collection --source "{source}"
-          </code>
-        </p>
-        <Link to={`/collections/${encodeURIComponent(source)}/edit`}>
-          Back to collection
-        </Link>
+        <h1>Starting ingest…</h1>
       </div>
     );
   }
@@ -302,21 +231,21 @@ export function Patch() {
 
 type WalkerProps = {
   sessionId: string;
+  source: string;
   page: PatchPage;
   pageCursor: number;
   totalPages: number;
   edits: Edits;
-  onToggleDelete: (pid: string) => void;
+  onToggleSkip: (bbox_idx: number) => void;
   onAddBbox: (b: PatchAddBBox) => void;
   onRemoveAdd: (addIdx: number) => void;
   onPrev: () => void;
   onNext: () => void;
-  onJump: (i: number) => void;
   onSkipRemaining: () => void;
 };
 
 function PatchWalker(props: WalkerProps) {
-  const { sessionId, page, edits, pageCursor, totalPages } = props;
+  const { sessionId, source, page, edits, pageCursor, totalPages } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   // `moved` distinguishes a click from a drag at mouseup time. Click and
   // drag both start with mousedown — we don't know which until the mouse
@@ -325,10 +254,11 @@ function PatchWalker(props: WalkerProps) {
     x0: number; y0: number; x1: number; y1: number;
     moved: boolean;
     cxStart: number; cyStart: number;
-    onClickPid?: string;          // existing bbox under cursor at mousedown
-    onClickAddIdx?: number;       // added bbox under cursor at mousedown
+    onClickBboxIdx?: number;     // detected bbox under cursor at mousedown
+    onClickAddIdx?: number;      // added bbox under cursor at mousedown
   } | null>(null);
   const adds = edits.addsByPage.get(page.page_idx) ?? [];
+  const skips = edits.skipsByPage.get(page.page_idx) ?? new Set<number>();
 
   // Map between rendered DOM coords and image-pixel coords.
   const imageRef = useRef<HTMLImageElement>(null);
@@ -354,14 +284,14 @@ function PatchWalker(props: WalkerProps) {
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    const pidAttr = target.dataset.bboxPid;
+    const bboxIdxAttr = target.dataset.bboxIdx;
     const addIdxAttr = target.dataset.bboxAddIdx;
     const p = toImageCoords(e);
     setDrag({
       x0: p.x, y0: p.y, x1: p.x, y1: p.y,
       moved: false,
       cxStart: e.clientX, cyStart: e.clientY,
-      onClickPid: pidAttr,
+      onClickBboxIdx: bboxIdxAttr ? parseInt(bboxIdxAttr, 10) : undefined,
       onClickAddIdx: addIdxAttr ? parseInt(addIdxAttr, 10) : undefined,
     });
   };
@@ -376,8 +306,7 @@ function PatchWalker(props: WalkerProps) {
   const onMouseUp = () => {
     if (!drag) return;
     if (!drag.moved) {
-      // Treated as a click on whatever was under the cursor at mousedown.
-      if (drag.onClickPid) props.onToggleDelete(drag.onClickPid);
+      if (drag.onClickBboxIdx !== undefined) props.onToggleSkip(drag.onClickBboxIdx);
       else if (drag.onClickAddIdx !== undefined) props.onRemoveAdd(drag.onClickAddIdx);
       setDrag(null);
       return;
@@ -415,12 +344,14 @@ function PatchWalker(props: WalkerProps) {
   return (
     <div className="patch-root">
       <div className="patch-header">
-        <span>Page {page.page_idx + 1} ({pageCursor + 1}/{totalPages})</span>
+        <span>
+          {source} · page {page.page_idx + 1} ({pageCursor + 1}/{totalPages})
+        </span>
         <div className="patch-walker-actions">
           <button onClick={props.onPrev} disabled={pageCursor === 0}>← Prev</button>
           <button onClick={props.onNext} disabled={pageCursor === totalPages - 1}>Next →</button>
           <button onClick={props.onSkipRemaining} className="patch-skip-btn">
-            Skip remaining → Confirm
+            Done → Confirm
           </button>
         </div>
       </div>
@@ -442,18 +373,17 @@ function PatchWalker(props: WalkerProps) {
         {imgLoaded && page.bboxes.map((b) => {
           const proj = project(b);
           if (!proj) return null;
-          const pid = b.existing_problem_id;
-          const isDeleted = pid ? edits.deletes.has(pid) : false;
-          const cls = pid
-            ? (isDeleted ? 'patch-bbox patch-bbox-deleted' : 'patch-bbox patch-bbox-existing')
-            : 'patch-bbox patch-bbox-orphan';
+          const skipped = skips.has(b.bbox_idx);
+          const cls = skipped
+            ? 'patch-bbox patch-bbox-deleted'
+            : 'patch-bbox patch-bbox-existing';
           return (
             <div
               key={`b-${b.bbox_idx}`}
               className={cls}
-              data-bbox-pid={pid ?? undefined}
+              data-bbox-idx={b.bbox_idx}
               style={proj}
-              title={pid ? (isDeleted ? 'Click to keep · drag to add' : 'Click to delete · drag to add') : 'No matching saved problem'}
+              title={skipped ? 'Click to keep · drag to add' : 'Click to skip · drag to add'}
             />
           );
         })}
@@ -488,8 +418,7 @@ function PatchWalker(props: WalkerProps) {
         })()}
       </div>
       <p className="patch-help">
-        Click an existing bbox to mark it for deletion (red).
-        Drag to add a new bbox (blue) — works anywhere, including over a deleted bbox.
+        Click a green bbox to skip it (red). Drag to add a new bbox (blue).
         Enter or → next page, ← previous page.
       </p>
     </div>

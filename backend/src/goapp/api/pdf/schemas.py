@@ -185,7 +185,7 @@ class IngestJobStartResponse(BaseModel):
     job_id: str
 
 
-# --- patch sessions: edit bboxes + apply diff to an existing collection ---
+# --- patch sessions: interactive ingest with skip/add over detected bboxes ---
 
 
 class PatchSessionStartResponse(BaseModel):
@@ -198,7 +198,6 @@ class PatchBBoxOut(BaseModel):
     y0: int
     x1: int
     y1: int
-    existing_problem_id: str | None = None
 
 
 class PatchPageOut(BaseModel):
@@ -206,6 +205,12 @@ class PatchPageOut(BaseModel):
     image_w: int
     image_h: int
     bboxes: list[PatchBBoxOut]
+
+
+class PatchApplyProgress(BaseModel):
+    total: int
+    ingested: int
+    failed: int
 
 
 class PatchSessionOut(BaseModel):
@@ -218,8 +223,17 @@ class PatchSessionOut(BaseModel):
     pages_rendered: int
     pages_detected: int
     pages: list[PatchPageOut]
-    align_warnings: list[str]
+    apply: PatchApplyProgress | None
     error: str | None
+
+
+class PatchSessionsResponse(BaseModel):
+    sessions: list[PatchSessionOut]
+
+
+class PatchSkipBBox(BaseModel):
+    page_idx: int
+    bbox_idx: int
 
 
 class PatchAddBBox(BaseModel):
@@ -231,11 +245,11 @@ class PatchAddBBox(BaseModel):
 
 
 class PatchApplyRequest(BaseModel):
-    deletes: list[str] = []   # existing_problem_id values to remove
+    skip: list[PatchSkipBBox] = []
     adds: list[PatchAddBBox] = []
 
 
-class PatchApplyResponse(BaseModel):
-    deleted: int
-    added: int
-    reindexed: int
+class PatchApplyAck(BaseModel):
+    """Apply runs in the background — the client polls
+    `/patch-sessions/{id}` (or the list endpoint) for progress."""
+    session_id: str

@@ -1,10 +1,13 @@
-"""Bbox-edit patch sessions: re-detect a previously-ingested PDF, let the
-user delete + add bboxes, then patch the existing collection in place.
+"""Interactive PDF ingest: render+detect every page, let the user skip
+bad bboxes and add missing ones, then ingest the surviving set fresh.
+
+This is the only path the upload UI uses. (The headless `pdf_ingest`
+path still exists for the CLI / legacy `/api/pdf/ingest*` endpoints.)
 
 A session lives under `data/patch_sessions/{user_id}/{session_id}/`:
 
     source.pdf            staged PDF (deleted on dismiss)
-    state.json            phase + per-page bbox info + alignment
+    state.json            phase + per-page detected bboxes
     pages/page_NNNN.png   rendered page images (kept until session ends so
                           apply can crop new bboxes without re-rendering)
 
@@ -18,27 +21,21 @@ State schema:
       pages: {
         "<page_idx>": {
           "image_w": int, "image_h": int,
-          "bboxes": [
-            {"bbox_idx", "x0", "y0", "x1", "y1",
-             "existing_problem_id": <str|null>}
-          ]
+          "bboxes": [{"bbox_idx", "x0", "y0", "x1", "y1"}]
         }
       },
-      align_warnings: [str],   # e.g. "page 4: 2 detected vs 3 saved"
+      apply: {                  # populated once the user POSTs apply
+        "total": int,           # number of bboxes to ingest
+        "ingested": int,        # successfully saved so far
+        "failed": int,          # discretize errors so far
+      },
       error: str | null
     }
 
-Identity comes from the (page_idx, bbox_idx) → existing_problem_id map
-built at start time, by re-running YOLO and matching against the
-existing problems on disk for `source`. YOLO is deterministic, so a
-clean alignment means each detected bbox lines up with exactly one
-ingested problem; mismatches are surfaced as `align_warnings` for the
-user to inspect before applying.
-
-Apply consumes the session state plus an edits payload (per-page deletes
-+ adds), runs the existing crop→discretize→SGF pipeline on adds, deletes
-the gone problems, and reindexes `source_board_idx` contiguously across
-the whole source.
+Apply consumes the session state plus an edits payload (per-page skips
++ adds), runs the existing crop→discretize→SGF pipeline on the kept +
+added bboxes, and assigns `source_board_idx` contiguously in
+(page_idx, bbox_idx) order across the whole PDF.
 """
 
 from __future__ import annotations
@@ -101,7 +98,7 @@ def create_session(user_id: str, session_id: str, source: str) -> dict[str, Any]
         "pages_rendered": 0,
         "pages_detected": 0,
         "pages": {},
-        "align_warnings": [],
+        "apply": None,
         "error": None,
     }
     save_state(state)
@@ -158,7 +155,6 @@ def delete_session(user_id: str, session_id: str) -> bool:
     sdir = session_dir(user_id, session_id)
     if not sdir.exists():
         return False
-    # Remove pages dir contents first, then top-level files, then dirs.
     pdir = pages_dir(user_id, session_id)
     if pdir.exists():
         for f in pdir.iterdir():
@@ -182,11 +178,11 @@ def delete_session(user_id: str, session_id: str) -> bool:
     return True
 
 
-# --- run: render every page + detect bboxes + align to existing problems ---
+# --- run: render every page + detect bboxes ---
 
 
 def run_session(user_id: str, session_id: str) -> None:
-    """Render+detect every page, save bboxes to state, align to disk.
+    """Render+detect every page, save bboxes to state.
 
     Reuses pdf_ingest's parallel page processor but only the render+
     detect prefix — no save. Each page's PNG is written to pages_dir
@@ -196,7 +192,6 @@ def run_session(user_id: str, session_id: str) -> None:
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
     from .pdf_ingest import _worker_init, default_workers
-    from .tsumego import list_problems
 
     state = load_state(user_id, session_id)
     if state is None:
@@ -254,41 +249,16 @@ def run_session(user_id: str, session_id: str) -> None:
         mark_error(user_id, session_id, str(e))
         return
 
-    # Build the (page_idx, bbox_idx) → existing_problem_id alignment map.
-    existing = list_problems(user_id, state["source"])
-    by_page: dict[int, list[dict]] = {}
-    for p in existing:
-        pi = p.get("page_idx")
-        if pi is None:
-            continue
-        by_page.setdefault(pi, []).append(p)
-
     pages_state: dict[str, dict] = {}
-    warnings: list[str] = []
     for page_idx in range(n_pages):
         res = page_results.get(page_idx, {"bboxes": [], "image_w": 0, "image_h": 0})
-        existing_on_page = sorted(
-            by_page.get(page_idx, []), key=lambda d: d.get("bbox_idx", 0),
-        )
-        # Index-based alignment: problem with bbox_idx==i ↔ detected bbox i.
-        existing_by_idx = {p.get("bbox_idx"): p["id"] for p in existing_on_page}
-        bb_out: list[dict] = []
-        for b in res["bboxes"]:
-            pid = existing_by_idx.get(b["bbox_idx"])
-            bb_out.append({**b, "existing_problem_id": pid})
-        if existing_on_page and len(res["bboxes"]) != len(existing_on_page):
-            warnings.append(
-                f"page {page_idx}: {len(res['bboxes'])} detected vs "
-                f"{len(existing_on_page)} saved"
-            )
         pages_state[str(page_idx)] = {
             "image_w": res["image_w"],
             "image_h": res["image_h"],
-            "bboxes": bb_out,
+            "bboxes": res["bboxes"],
         }
 
     state["pages"] = pages_state
-    state["align_warnings"] = warnings
     state["phase"] = "ready"
     save_state(state)
 
@@ -322,139 +292,193 @@ def _render_and_detect_page(pdf_path: str, page_idx: int, pages_dir_str: str) ->
     }
 
 
-# --- apply: turn an edits payload into deletes + adds + reindex ---
+# --- apply: ingest the kept + added bboxes ---
 
 
 def apply_session(
     user_id: str, session_id: str, edits: dict[str, Any],
 ) -> dict[str, Any]:
-    """Mutate the collection per `edits` and reindex.
+    """Ingest every detected bbox the user did not skip, plus every
+    user-added bbox.
 
     `edits` shape:
         {
-          "deletes": ["<problem_id>", ...],         # IDs to remove
+          "skip": [{"page_idx": int, "bbox_idx": int}, ...],
           "adds": [
             {"page_idx": int, "x0": int, "y0": int, "x1": int, "y1": int}
           ],
         }
 
-    Returns: {"deleted": int, "added": int, "reindexed": int}.
+    `source_board_idx` is assigned contiguously in (page_idx, bbox_idx)
+    order, with adds appended after the detected bboxes on each page.
+
+    Updates `state["apply"] = {total, ingested, failed}` periodically so
+    the home page progress bar can poll. On completion, deletes the
+    staged PDF and rendered page PNGs (state.json stays so the "done"
+    card persists until the user dismisses it).
     """
     import cv2
     import numpy as np
 
     from .ml.pipeline import BOARD_CROP_PAD, discretize_crop
-    from .paths import tsumego_dir
-    from .tsumego import delete_problem, list_problems, save_problem
+    from .tsumego import save_problem
 
     state = load_state(user_id, session_id)
     if state is None:
         raise FileNotFoundError(f"session {session_id} not found")
-    state["phase"] = "applying"
-    save_state(state)
 
     source = state["source"]
     uploaded_at = state.get("started_at") or _now()
 
-    deletes = list(edits.get("deletes", []))
-    adds = list(edits.get("adds", []))
-
-    deleted = 0
-    for pid in deletes:
-        if delete_problem(user_id, pid):
-            deleted += 1
-
-    added = 0
-    # Bucket adds by page so we can compute next-available bbox_idx per page.
+    skip_set: set[tuple[int, int]] = {
+        (int(s["page_idx"]), int(s["bbox_idx"])) for s in edits.get("skip", [])
+    }
     adds_by_page: dict[int, list[dict]] = {}
-    for a in adds:
+    for a in edits.get("adds", []):
         adds_by_page.setdefault(int(a["page_idx"]), []).append(a)
+    for page_adds in adds_by_page.values():
+        # Sort top-to-bottom, left-to-right so bbox_idx assignment matches
+        # natural reading order.
+        page_adds.sort(key=lambda a: (a["y0"], a["x0"]))
 
-    # For each page receiving an add, figure out the next bbox_idx so it
-    # sorts after any existing bboxes there. After deletions we ignore
-    # the gone problems' indices — we want the new one to be > any
-    # surviving index on the page.
-    surviving_by_page = _problems_grouped_by_page(user_id, source)
+    pages_state = state.get("pages") or {}
+    page_indices = sorted(int(k) for k in pages_state.keys())
 
-    for page_idx, page_adds in adds_by_page.items():
-        page_path = page_image_path(user_id, session_id, page_idx)
-        if not page_path.exists():
-            log.warning("patch apply: page %d image missing, skipping %d adds",
-                        page_idx, len(page_adds))
-            continue
-        img = cv2.imdecode(
-            np.frombuffer(page_path.read_bytes(), np.uint8), cv2.IMREAD_COLOR,
+    # Build the full ingest list in (page_idx, bbox_idx) order.
+    ingest_plan: list[dict] = []
+    for page_idx in page_indices:
+        page = pages_state[str(page_idx)]
+        kept = [
+            b for b in page.get("bboxes", [])
+            if (page_idx, int(b["bbox_idx"])) not in skip_set
+        ]
+        next_idx = (
+            max((int(b["bbox_idx"]) for b in page.get("bboxes", [])), default=-1) + 1
         )
-        if img is None:
-            log.warning("patch apply: could not decode page %d", page_idx)
-            continue
+        for b in kept:
+            ingest_plan.append({
+                "page_idx": page_idx,
+                "bbox_idx": int(b["bbox_idx"]),
+                "x0": int(b["x0"]), "y0": int(b["y0"]),
+                "x1": int(b["x1"]), "y1": int(b["y1"]),
+            })
+        for a in adds_by_page.get(page_idx, []):
+            ingest_plan.append({
+                "page_idx": page_idx,
+                "bbox_idx": next_idx,
+                "x0": int(a["x0"]), "y0": int(a["y0"]),
+                "x1": int(a["x1"]), "y1": int(a["y1"]),
+            })
+            next_idx += 1
+
+    state["phase"] = "applying"
+    state["apply"] = {"total": len(ingest_plan), "ingested": 0, "failed": 0}
+    save_state(state)
+
+    ingested = 0
+    failed = 0
+    page_imgs: dict[int, np.ndarray] = {}
+
+    for sbi, item in enumerate(ingest_plan):
+        page_idx = item["page_idx"]
+        if page_idx not in page_imgs:
+            p = page_image_path(user_id, session_id, page_idx)
+            if not p.exists():
+                log.warning("patch apply: page %d image missing", page_idx)
+                failed += 1
+                _bump_apply_progress(user_id, session_id, ingested, failed)
+                continue
+            img = cv2.imdecode(
+                np.frombuffer(p.read_bytes(), np.uint8), cv2.IMREAD_COLOR,
+            )
+            if img is None:
+                log.warning("patch apply: could not decode page %d", page_idx)
+                failed += 1
+                _bump_apply_progress(user_id, session_id, ingested, failed)
+                continue
+            page_imgs[page_idx] = img
+        img = page_imgs[page_idx]
         h, w = img.shape[:2]
 
-        existing_idxs = [
-            p.get("bbox_idx", -1) for p in surviving_by_page.get(page_idx, [])
-        ]
-        next_idx = (max(existing_idxs) + 1) if existing_idxs else 0
-        # Sort adds top-to-bottom, left-to-right so bbox_idx assignment
-        # matches reading order.
-        page_adds.sort(key=lambda a: (a["y0"], a["x0"]))
-        for a in page_adds:
-            x0 = max(0, int(a["x0"]) - BOARD_CROP_PAD)
-            y0 = max(0, int(a["y0"]) - BOARD_CROP_PAD)
-            x1 = min(w, int(a["x1"]) + BOARD_CROP_PAD)
-            y1 = min(h, int(a["y1"]) + BOARD_CROP_PAD)
-            crop = img[y0:y1, x0:x1]
-            try:
-                d, _ = discretize_crop(crop)
-                stones = [
-                    {"col": int(s.col), "row": int(s.row), "color": str(s.color)}
-                    for s in d.stones
-                ]
-                ok, buf = cv2.imencode(".png", crop)
-                save_problem(
-                    user_id=user_id,
-                    source=source,
-                    uploaded_at=uploaded_at,
-                    source_board_idx=10**6 + added,  # placeholder; reindex below
-                    stones=stones,
-                    black_to_play=True,
-                    crop_png=buf.tobytes() if ok else None,
-                    status="unreviewed",
-                    page_idx=page_idx,
-                    bbox_idx=next_idx,
-                )
-                added += 1
-                next_idx += 1
-            except Exception as e:
-                log.warning("patch apply: discretize failed page %d: %s",
-                            page_idx, e)
+        x0 = max(0, item["x0"] - BOARD_CROP_PAD)
+        y0 = max(0, item["y0"] - BOARD_CROP_PAD)
+        x1 = min(w, item["x1"] + BOARD_CROP_PAD)
+        y1 = min(h, item["y1"] + BOARD_CROP_PAD)
+        crop = img[y0:y1, x0:x1]
+        try:
+            d, _ = discretize_crop(crop)
+            stones = [
+                {"col": int(s.col), "row": int(s.row), "color": str(s.color)}
+                for s in d.stones
+            ]
+            ok, buf = cv2.imencode(".png", crop)
+            save_problem(
+                user_id=user_id,
+                source=source,
+                uploaded_at=uploaded_at,
+                source_board_idx=sbi,
+                stones=stones,
+                black_to_play=True,
+                crop_png=buf.tobytes() if ok else None,
+                status="unreviewed",
+                page_idx=page_idx,
+                bbox_idx=item["bbox_idx"],
+            )
+            ingested += 1
+        except Exception as e:
+            log.warning(
+                "patch apply: discretize failed page %d bbox %d: %s",
+                page_idx, item["bbox_idx"], e,
+            )
+            failed += 1
+        # Save every 5 boards (and always on the last one) so the home
+        # page poller sees fresh progress without thrashing the disk.
+        if (sbi + 1) % 5 == 0 or (sbi + 1) == len(ingest_plan):
+            _bump_apply_progress(user_id, session_id, ingested, failed)
 
-    # Reindex source_board_idx contiguously over (page_idx, bbox_idx).
-    all_problems = list_problems(user_id, source)
-    all_problems.sort(key=lambda p: (
-        p.get("page_idx") or 0, p.get("bbox_idx") or 0,
-    ))
-    udir = tsumego_dir(user_id)
-    reindexed = 0
-    for new_sbi, p in enumerate(all_problems):
-        if p.get("source_board_idx") == new_sbi:
-            continue
-        jp = udir / f"{p['id']}.json"
-        d = json.loads(jp.read_text())
-        d["source_board_idx"] = new_sbi
-        jp.write_text(json.dumps(d, indent=2))
-        reindexed += 1
-
+    state = load_state(user_id, session_id) or state
     state["phase"] = "done"
+    state["apply"] = {
+        "total": len(ingest_plan), "ingested": ingested, "failed": failed,
+    }
     save_state(state)
-    return {"deleted": deleted, "added": added, "reindexed": reindexed}
+    _cleanup_artifacts(user_id, session_id)
+    return {
+        "ingested": ingested,
+        "skipped": len(skip_set),
+        "failed": failed,
+    }
 
 
-def _problems_grouped_by_page(user_id: str, source: str) -> dict[int, list[dict]]:
-    from .tsumego import list_problems
-    out: dict[int, list[dict]] = {}
-    for p in list_problems(user_id, source):
-        pi = p.get("page_idx")
-        if pi is None:
-            continue
-        out.setdefault(pi, []).append(p)
-    return out
+def _bump_apply_progress(
+    user_id: str, session_id: str, ingested: int, failed: int,
+) -> None:
+    s = load_state(user_id, session_id)
+    if s is None or s.get("apply") is None:
+        return
+    s["apply"]["ingested"] = ingested
+    s["apply"]["failed"] = failed
+    save_state(s)
+
+
+def _cleanup_artifacts(user_id: str, session_id: str) -> None:
+    """Drop the staged PDF + rendered pages once apply is done.
+
+    Keeps state.json so the home-page card persists until the user
+    dismisses it (mirroring how `ingest_jobs.cleanup_source_pdf` works)."""
+    pdir = pages_dir(user_id, session_id)
+    if pdir.exists():
+        for f in pdir.iterdir():
+            try:
+                f.unlink()
+            except FileNotFoundError:
+                pass
+        try:
+            pdir.rmdir()
+        except OSError:
+            pass
+    pdf = source_pdf_path(user_id, session_id)
+    try:
+        pdf.unlink()
+    except FileNotFoundError:
+        pass

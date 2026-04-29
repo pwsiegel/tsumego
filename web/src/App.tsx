@@ -75,11 +75,11 @@ function App() {
       <Routes>
         <Route path="/" element={<RootRoute />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/upload/:sessionId" element={<Patch />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/reviewed" element={<Reviewed />} />
         <Route path="/submissions/:sent_at" element={<Submission />} />
         <Route path="/collections/:source/edit" element={<Collection />} />
-        <Route path="/collections/:source/patch" element={<Patch />} />
         <Route path="/collections/:source/review" element={<Review />} />
         <Route path="/collections/:source/problem/:id" element={<ProblemDetail />} />
         <Route path="/collections/:source/solve" element={<SolveEntry />} />

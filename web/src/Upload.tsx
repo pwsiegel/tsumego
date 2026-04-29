@@ -15,10 +15,10 @@ export function Upload() {
     setError(null);
 
     try {
-      await api.pdf.startIngest(file, (frac) => setUploadFrac(frac));
-      // Hand off to the home page; the new job will appear in its
-      // jobs section and poll for progress.
-      navigate('/');
+      const sessionId = await api.pdf.startPatchSession(
+        file, (frac) => setUploadFrac(frac),
+      );
+      navigate(`/upload/${sessionId}`);
     } catch (e) {
       setError(String(e));
       setUploading(false);
@@ -49,9 +49,9 @@ export function Upload() {
               />
             </label>
             <p className="upload-hint">
-              We'll detect every board and save them as unreviewed in
-              the background. You can leave this page once the upload
-              finishes — progress shows up on the home page.
+              We'll detect every board on every page, then walk you
+              through them so you can skip bad ones and add boards we
+              missed before ingesting.
             </p>
           </>
         )}
@@ -61,8 +61,8 @@ export function Upload() {
             <p>Uploading… {Math.round((uploadFrac ?? 0) * 100)}%</p>
             <progress value={uploadFrac ?? 0} max={1} className="upload-progress" />
             <p className="dim">
-              Board detection runs in the background; you'll be sent
-              home as soon as the file finishes uploading.
+              Once uploaded, board detection runs and you'll be sent
+              to the bbox walker.
             </p>
           </div>
         )}

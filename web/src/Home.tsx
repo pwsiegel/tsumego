@@ -7,6 +7,7 @@ import {
   type Collection,
   type IngestJob,
   type LinkedUser,
+  type PatchSession,
   type Profile,
   type Submission,
 } from './api';
@@ -55,6 +56,8 @@ export function Home() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [pollNonce, setPollNonce] = useState(0);
   const prevJobsRef = useRef<IngestJob[] | null>(null);
+  const [patchSessions, setPatchSessions] = useState<PatchSession[] | null>(null);
+  const prevPatchRef = useRef<PatchSession[] | null>(null);
 
   useEffect(() => {
     api.tsumego.listCollections()
@@ -119,6 +122,66 @@ export function Home() {
       api.tsumego.listCollections().then(setCollections).catch(() => {});
     }
   }, [jobs]);
+
+  // Poll patch sessions. Only sessions in `applying` should be ticking;
+  // `done` cards stay until the user dismisses, `ready`/`rendering`/
+  // `detecting` mean the user is mid-walker on the upload page (we
+  // still display them so they can resume, but no need to poll fast).
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const next = await api.pdf.listPatchSessions();
+        if (cancelled) return;
+        setPatchSessions(next);
+        const hasInFlight = next.some(
+          (s) => s.phase === 'applying' || s.phase === 'rendering' || s.phase === 'detecting',
+        );
+        if (hasInFlight) timer = window.setTimeout(poll, 2000);
+      } catch {
+        if (!cancelled) timer = window.setTimeout(poll, 5000);
+      }
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [pollNonce]);
+
+  // When a patch session finishes ingesting, refresh collections so
+  // the new source appears, and auto-dismiss the card — the collection
+  // tile right next to it is the natural "open" affordance.
+  useEffect(() => {
+    const prev = prevPatchRef.current;
+    prevPatchRef.current = patchSessions;
+    if (!prev || !patchSessions) return;
+    const justDone = patchSessions.filter((s) => {
+      if (s.phase !== 'done') return false;
+      const prevS = prev.find((p) => p.session_id === s.session_id);
+      return !!prevS && prevS.phase !== 'done';
+    });
+    if (justDone.length === 0) return;
+    api.tsumego.listCollections().then(setCollections).catch(() => {});
+    for (const s of justDone) {
+      api.pdf.dismissPatchSession(s.session_id).catch(() => {});
+    }
+    setPatchSessions((cur) =>
+      (cur ?? []).filter((s) => !justDone.some((d) => d.session_id === s.session_id)));
+  }, [patchSessions]);
+
+  const dismissPatchSession = async (s: PatchSession) => {
+    setJobsError(null);
+    try {
+      await api.pdf.dismissPatchSession(s.session_id);
+      setPatchSessions((prev) =>
+        (prev ?? []).filter((x) => x.session_id !== s.session_id));
+    } catch (e) {
+      setJobsError(`Couldn't dismiss: ${e}`);
+    }
+  };
 
   const restartJob = async (job: IngestJob) => {
     setJobsError(null);
@@ -329,6 +392,17 @@ export function Home() {
                 job={j}
                 onRestart={() => restartJob(j)}
                 onDismiss={() => dismissJob(j)}
+              />
+            ))}
+          </ul>
+        )}
+        {patchSessions && patchSessions.length > 0 && (
+          <ul className="jobs-list">
+            {patchSessions.map((s) => (
+              <PatchSessionCard
+                key={s.session_id}
+                session={s}
+                onDismiss={() => dismissPatchSession(s)}
               />
             ))}
           </ul>
@@ -575,6 +649,115 @@ function JobCard({
           <button type="button" className="job-restart" onClick={onRestart}>
             Restart
           </button>
+        )}
+        {showDismiss && (
+          <button
+            type="button"
+            className="job-dismiss"
+            onClick={onDismiss}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function PatchSessionCard({
+  session, onDismiss,
+}: {
+  session: PatchSession;
+  onDismiss: () => void;
+}) {
+  const isError = session.phase === 'error';
+  const isDone = session.phase === 'done';
+  const isApplying = session.phase === 'applying';
+  const isWalker =
+    session.phase === 'rendering'
+    || session.phase === 'detecting'
+    || session.phase === 'ready';
+
+  let label: string;
+  let frac: number | null = null;
+  let indeterminate = false;
+  if (isError) {
+    label = `Failed: ${session.error ?? 'unknown error'}`;
+  } else if (isApplying) {
+    const a = session.apply;
+    if (a && a.total > 0) {
+      label = `Ingesting boards · ${a.ingested} / ${a.total}`
+        + (a.failed > 0 ? ` · ${a.failed} failed` : '');
+      frac = a.ingested / a.total;
+    } else {
+      label = 'Ingesting boards…';
+      indeterminate = true;
+    }
+  } else if (isDone) {
+    const a = session.apply;
+    const ingested = a?.ingested ?? 0;
+    const failed = a?.failed ?? 0;
+    label = `${ingested} problem${ingested === 1 ? '' : 's'} imported`
+      + (failed > 0 ? ` · ${failed} failed` : '');
+    frac = 1;
+  } else if (session.phase === 'rendering') {
+    if (session.total_pages) {
+      label = `Rendering pages · ${session.pages_rendered} / ${session.total_pages}`;
+      frac = session.pages_rendered / session.total_pages;
+    } else {
+      label = 'Rendering pages…';
+      indeterminate = true;
+    }
+  } else if (session.phase === 'detecting') {
+    if (session.total_pages) {
+      label = `Detecting boards · ${session.pages_detected} / ${session.total_pages}`;
+      frac = session.pages_detected / session.total_pages;
+    } else {
+      label = 'Detecting boards…';
+      indeterminate = true;
+    }
+  } else {
+    // ready — user hasn't finished walking pages
+    label = 'Waiting for you to confirm boards';
+    frac = 1;
+  }
+
+  const stateClass = isError
+    ? 'state-error'
+    : isDone ? 'state-done' : 'state-active';
+  const showOpen = isWalker;
+  const showCollection = isDone;
+  const showDismiss = isDone || isError;
+
+  return (
+    <li className={`job-card ${stateClass}`}>
+      <div className="job-card-main">
+        <div className="job-card-source">{session.source}</div>
+        <div className="job-card-status">{label}</div>
+        {!isError && (
+          indeterminate
+            ? <progress className="job-progress" />
+            : <progress className="job-progress" value={frac ?? 0} max={1} />
+        )}
+      </div>
+      <div className="job-card-actions">
+        {showOpen && (
+          <Link
+            to={`/upload/${session.session_id}`}
+            className="job-link"
+          >
+            Resume
+          </Link>
+        )}
+        {showCollection && (
+          <Link
+            to={`/collections/${encodeURIComponent(session.source)}/edit`}
+            className="job-link"
+          >
+            Open
+          </Link>
         )}
         {showDismiss && (
           <button
