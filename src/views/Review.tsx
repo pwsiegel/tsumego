@@ -10,7 +10,7 @@ import { movesFromSgf, setupStonesFromSgf, sgfInfo } from '../sgf';
 import { replay } from '../goRules';
 import { Board } from '../Board';
 import { Spinner } from '../Spinner';
-import { FilterChips } from '../FilterChips';
+import { FilterChips, type Chip } from '../FilterChips';
 import { ManagePlayersModal } from './ManagePlayersModal';
 import { UploadGameModal } from './UploadGameModal';
 import { EditGameModal } from './EditGameModal';
@@ -39,13 +39,27 @@ function gameChipKeys(g: GameDoc): string[] {
   return [g.blackUid, g.whiteUid].filter((u): u is number => u != null).map(String);
 }
 
-/** Show everything: every chip a game or account could produce starts selected. */
+/** The filter chips one owner's games offer: their tracked Fox accounts, the
+ * vs-KataGo tag when they have such a game, and the owner's name on each marked
+ * upload. Opponents are deliberately absent — a game is filtered by whose game
+ * it is, not by who it was against. */
+function chipsFor(games: GameDoc[], accounts: FoxAccountDoc[]): Chip[] {
+  const list: Chip[] = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
+  if (games.some((g) => g.source === 'go-training')) {
+    list.push({ key: LOCAL_AI, label: 'vs KataGo' });
+  }
+  const names = new Set<string>();
+  for (const g of games) {
+    const n = uploadPlayerName(g);
+    if (n) names.add(n);
+  }
+  for (const n of [...names].sort()) list.push({ key: uploadChipKey(n), label: n });
+  return list;
+}
+
+/** Show everything: every chip on offer starts selected. */
 function defaultSelection(games: GameDoc[], accounts: FoxAccountDoc[]): Set<string> {
-  return new Set([
-    LOCAL_AI,
-    ...accounts.map((a) => String(a.uid)),
-    ...games.flatMap(gameChipKeys),
-  ]);
+  return new Set(chipsFor(games, accounts).map((c) => c.key));
 }
 
 /** Games one owner shared — the teacher view's scope. */
@@ -255,38 +269,26 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     [games, scopeUid],
   );
 
-  const hasLocalAi = useMemo(() => scoped.some((g) => g.source === 'go-training'), [scoped]);
-  const uploadNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const g of scoped) {
-      const n = uploadPlayerName(g);
-      if (n) names.add(n);
-    }
-    return [...names].sort();
-  }, [scoped]);
-
   // Player-name chips: Fox accounts + vs-KataGo + upload names. A teacher sees
   // the selected student's names — the same ones that student sees.
-  const chips = useMemo(() => {
-    const list = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
-    if (hasLocalAi) list.push({ key: LOCAL_AI, label: 'vs KataGo' });
-    for (const n of uploadNames) list.push({ key: uploadChipKey(n), label: n });
-    return list;
-  }, [accounts, hasLocalAi, uploadNames]);
+  const chips = useMemo(() => chipsFor(scoped, accounts), [scoped, accounts]);
+  const chipKeys = useMemo(() => new Set(chips.map((c) => c.key)), [chips]);
 
   const studentChips = useMemo(
     () => (teacherMode ? students.map((s) => ({ key: s.uid, label: s.displayName })) : []),
     [teacherMode, students],
   );
 
+  // Only keys with a chip behind them can filter: a Fox opponent nobody tracks
+  // has no chip to deselect, so counting it would keep the game visible always.
   const visible = useMemo(
     () => scoped
       .filter((g) => {
-        const keys = gameChipKeys(g);
+        const keys = gameChipKeys(g).filter((k) => chipKeys.has(k));
         return keys.length === 0 || keys.some((k) => selected.has(k));
       })
       .sort((a, b) => b.createdAt - a.createdAt),
-    [scoped, selected],
+    [scoped, selected, chipKeys],
   );
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -335,7 +337,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     ? (students.length === 0 ? 'No linked students yet.'
         : scoped.length === 0 ? `No games shared by ${studentName}.`
           : 'No games match the selected filters.')
-    : (accounts.length === 0 && !hasLocalAi
+    : (chips.length === 0
         ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
         : 'No games match the selected filters.');
 
