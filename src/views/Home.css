@@ -4,6 +4,34 @@
   padding: 3rem 1.5rem;
 }
 
-.home-hint {
-  color: var(--text-muted);
+.home-guide {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.home-guide:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 1.5rem;
+}
+
+.home-guide h2 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.home-guide p {
+  margin: 0 0 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.home-guide p:last-child {
+  margin-bottom: 0;
+}
+
+.home-guide strong {
+  color: var(--text);
+  font-weight: 600;
 }
