@@ -6,7 +6,7 @@ import type { Color } from '../types';
 import { patchSgfMeta, sgfInfo } from '../sgf';
 import './UploadGameModal.css';
 
-/** Edit a game's metadata — name, date, players/ranks, result, ruleset, komi,
+/** Edit a game's metadata — name, date, event, players/ranks, result, ruleset, komi,
  * and the you-played marker. Edits patch the SGF's root tags in place, so the
  * move record (including passes and variations) is untouched; the board
  * position and moves are not editable here. */
@@ -19,6 +19,7 @@ export function EditGameModal({ game, onClose, onSaved }: {
   const re = info.result.match(/^([BW])\+(.*)$/);
   const [name, setName] = useState(game.name ?? '');
   const [date, setDate] = useState(info.date);
+  const [event, setEvent] = useState(info.event);
   const [playerBlack, setPlayerBlack] = useState(info.playerBlack);
   const [rankBlack, setRankBlack] = useState(info.rankBlack);
   const [playerWhite, setPlayerWhite] = useState(info.playerWhite);
@@ -45,6 +46,7 @@ export function EditGameModal({ game, onClose, onSaved }: {
       const sgf = patchSgfMeta(game.sgf, {
         GN: name.trim(),
         DT: date.trim(),
+        EV: event.trim(),
         PB: playerBlack.trim(),
         BR: rankBlack.trim(),
         PW: playerWhite.trim(),
@@ -54,20 +56,21 @@ export function EditGameModal({ game, onClose, onSaved }: {
         KM: komi,
         RU: rulesText.trim(),
       });
-      const played = date.trim() && date.trim() !== info.date ? Date.parse(date.trim()) : NaN;
       const patch = {
         sgf,
         name: name.trim() ? name.trim() : deleteField(),
+        date: date.trim() ? date.trim() : deleteField(),
+        event: event.trim() ? event.trim() : deleteField(),
         myColor: myColor ?? deleteField(),
-        ...(Number.isFinite(played) ? { createdAt: played } : {}),
       };
       await updateGame(game.id, patch);
       const updated: GameDoc = {
         ...game,
         sgf,
         name: name.trim() || undefined,
+        date: date.trim() || undefined,
+        event: event.trim() || undefined,
         myColor: myColor ?? undefined,
-        ...(Number.isFinite(played) ? { createdAt: played } : {}),
       };
       onSaved(updated);
     } catch (e) {
@@ -88,10 +91,14 @@ export function EditGameModal({ game, onClose, onSaved }: {
         <button type="button" className="review-modal-close" onClick={onClose} aria-label="Close">×</button>
         <h2>Edit game</h2>
 
+        <label className="upload-field">
+          <span>Game name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
         <div className="upload-player-row">
           <label className="upload-field">
-            <span>Game name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} />
+            <span>Event</span>
+            <input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="e.g. club league" />
           </label>
           <label className="upload-field upload-field-rank">
             <span>Date</span>

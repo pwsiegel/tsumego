@@ -19,7 +19,8 @@ export type SgfMeta = {
   playerWhite?: string;
   rankBlack?: string;
   rankWhite?: string;
-  date?: string;        // YYYY-MM-DD
+  date?: string;        // DT, normally YYYY-MM-DD
+  event?: string;       // EV, e.g. a tournament or the server it was played on
   result?: string;      // RE, e.g. "B+R"
 };
 
@@ -28,7 +29,7 @@ export function toSgf(moves: GameMove[], meta: SgfMeta = {}): string {
     boardSize = 19, komi = 7.5, rules = 'Chinese', name = '',
     handicap = 0, setup = [],
     playerBlack = '', playerWhite = '', rankBlack = '', rankWhite = '',
-    date = '', result = '',
+    date = '', event = '', result = '',
   } = meta;
   const ab = setup.filter((s) => s.color === 'B');
   const aw = setup.filter((s) => s.color === 'W');
@@ -40,6 +41,7 @@ export function toSgf(moves: GameMove[], meta: SgfMeta = {}): string {
     ab.length > 0 && `AB${ab.map((s) => `[${point(s.x, s.y)}]`).join('')}`,
     aw.length > 0 && `AW${aw.map((s) => `[${point(s.x, s.y)}]`).join('')}`,
     name && `GN[${esc(name)}]`,
+    event && `EV[${esc(event)}]`,
     playerBlack && `PB[${esc(playerBlack)}]`,
     playerWhite && `PW[${esc(playerWhite)}]`,
     rankBlack && `BR[${esc(rankBlack)}]`,
@@ -57,7 +59,8 @@ export type SgfInfo = {
   playerWhite: string;
   rankBlack: string;
   rankWhite: string;
-  date: string;
+  date: string;         // DT[] (empty when absent)
+  event: string;        // EV[] (empty when absent)
   result: string;       // RE[] value, e.g. "W+0.25" (empty when absent)
   boardSize: number | null;   // SZ[] (null when absent)
   komi: number | null;        // KM[] (null when absent)
@@ -83,6 +86,7 @@ export function sgfInfo(sgf: string): SgfInfo {
     rankBlack: normalizeRank(prop('BR')),
     rankWhite: normalizeRank(prop('WR')),
     date: prop('DT'),
+    event: prop('EV'),
     result: prop('RE'),
     boardSize: num(prop('SZ')),
     komi: num(prop('KM')),
@@ -191,7 +195,7 @@ export function mainlineMovesFromSgf(sgf: string): GameMove[] {
  * (which would drop passes and variations). Values are escaped. */
 export function patchSgfMeta(
   sgf: string,
-  tags: Partial<Record<'GN' | 'PB' | 'PW' | 'BR' | 'WR' | 'DT' | 'RE' | 'KM' | 'RU', string>>,
+  tags: Partial<Record<'GN' | 'PB' | 'PW' | 'BR' | 'WR' | 'DT' | 'EV' | 'RE' | 'KM' | 'RU', string>>,
 ): string {
   let out = sgf;
   for (const [key, raw] of Object.entries(tags)) {

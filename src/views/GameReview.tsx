@@ -4,7 +4,7 @@ import { useAuth } from '../auth';
 import { Board, type Annotation } from '../Board';
 import { playMove, replay } from '../goRules';
 import { movesFromSgf, setupStonesFromSgf, sgfInfo, toSgf } from '../sgf';
-import { gameOutcome, getGame, saveGame } from '../data/games';
+import { gameDate, gameEvent, gameOutcome, getGame, saveGame } from '../data/games';
 import { listFoxAccounts } from '../data/fox';
 import { loadReview, newReviewId, saveReview } from '../data/reviews';
 import type { GameDoc, GameMove, PlayDefaults, SavedNode } from '../data/model';
@@ -749,9 +749,10 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
       </span>
     );
   };
-  const when = new Date(game.createdAt).toLocaleDateString(undefined, {
+  const when = new Date(gameDate(game)).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });
+  const event = gameEvent(game);
   const cachedAnalysis = analyzing && sessionPosition
     ? analysisCache.get(sessionPosition.nodeKey) ?? null : null;
   const currentAnalysis = analyzing ? (session.snapshot ?? cachedAnalysis) : null;
@@ -804,6 +805,9 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
         </h1>
         <span className="gr-meta">
           {!fresh && <><span>{when}</span><span className="gr-dot">·</span></>}
+          {!fresh && event && event !== game.name && (
+            <><span>{event}</span><span className="gr-dot">·</span></>
+          )}
           <span>{mainlineTotal} moves</span>
           {game.finalScore != null ? (
             <><span className="gr-dot">·</span><strong>{scoreLabel(game.finalScore)}</strong></>

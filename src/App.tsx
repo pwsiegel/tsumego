@@ -52,7 +52,12 @@ function Sidebar({ teacherMode, canToggle, onToggle }: {
           <NavLink to="/history" className={subNavClass}>History</NavLink>
         </div>
         {!teacherMode && <NavLink to="/play" className={navClass}>Play AI</NavLink>}
-        <NavLink to="/review" className={navClass}>Review games</NavLink>
+        <div className="sidebar-group">
+          <NavLink to="/review" end className={navClass}>Review games</NavLink>
+          <NavLink to="/review/online" className={subNavClass}>Online</NavLink>
+          <NavLink to="/review/over-the-board" className={subNavClass}>Over the board</NavLink>
+          <NavLink to="/review/ai" className={subNavClass}>vs AI</NavLink>
+        </div>
         <NavLink to="/pro-games" className={navClass}>Pro games</NavLink>
       </nav>
       <div className="sidebar-foot">
@@ -126,6 +131,18 @@ export default function App() {
             <Route path="/history" element={<History teacherMode={teacherMode} />} />
             <Route path="/play" element={<GameReview key="play" fresh />} />
             <Route path="/review" element={<Review teacherMode={teacherMode} />} />
+            <Route
+              path="/review/online"
+              element={<Review key="online" teacherMode={teacherMode} scope="online" />}
+            />
+            <Route
+              path="/review/over-the-board"
+              element={<Review key="otb" teacherMode={teacherMode} scope="otb" />}
+            />
+            <Route
+              path="/review/ai"
+              element={<Review key="ai" teacherMode={teacherMode} scope="ai" />}
+            />
             <Route path="/review/:id" element={<GameReview key="review" />} />
             <Route path="/pro-games" element={<ProGames />} />
             <Route path="/teacher" element={<Navigate to="/submissions" replace />} />

@@ -16,6 +16,8 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
 }) {
   const [sgfText, setSgfText] = useState('');
   const [name, setName] = useState('');
+  const [date, setDate] = useState('');
+  const [event, setEvent] = useState('');
   const [playerBlack, setPlayerBlack] = useState('');
   const [rankBlack, setRankBlack] = useState('');
   const [playerWhite, setPlayerWhite] = useState('');
@@ -45,6 +47,8 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
     if (!text.trim()) return;
     const info = sgfInfo(text);
     setName(info.name);
+    setDate(info.date);
+    setEvent(info.event);
     setPlayerBlack(info.playerBlack);
     setRankBlack(info.rankBlack);
     setPlayerWhite(info.playerWhite);
@@ -99,16 +103,18 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
         playerWhite: playerWhite.trim(),
         rankBlack: rankBlack.trim(),
         rankWhite: rankWhite.trim(),
-        date: info.date,
+        date: date.trim(),
+        event: event.trim(),
         result,
       });
-      const played = info.date ? Date.parse(info.date) : NaN;
       const game = await saveGame({
         ownerUid,
         source: 'upload',
-        createdAt: Number.isFinite(played) ? played : Date.now(),
+        createdAt: Date.now(),
         sgf,
         ...(name.trim() ? { name: name.trim() } : {}),
+        ...(date.trim() ? { date: date.trim() } : {}),
+        ...(event.trim() ? { event: event.trim() } : {}),
         ...(myColor ? { myColor } : {}),
       });
       onSaved(game);
@@ -158,6 +164,16 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
           <span>Game name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
+        <div className="upload-player-row">
+          <label className="upload-field">
+            <span>Event</span>
+            <input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="e.g. club league" />
+          </label>
+          <label className="upload-field upload-field-rank">
+            <span>Date</span>
+            <input value={date} onChange={(e) => setDate(e.target.value)} placeholder="YYYY-MM-DD" />
+          </label>
+        </div>
         <div className="upload-player-row">
           <label className="upload-field">
             <span>Black player</span>

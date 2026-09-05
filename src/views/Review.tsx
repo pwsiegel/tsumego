@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { deleteGame, gameOutcome, listGames } from '../data/games';
+import { ONLINE_EVENT, deleteGame, gameDate, gameEvent, gameOutcome, listGames } from '../data/games';
 import { deleteReviewsForGame } from '../data/reviews';
 import { listStudents } from '../data/links';
 import { foxAvailable, listFoxAccounts } from '../data/fox';
@@ -18,6 +18,21 @@ import './Review.css';
 
 const LOCAL_AI = 'local-ai';
 
+/** Which section of the review list a page shows. `all` is the parent page,
+ * which keeps every game. */
+export type Scope = 'all' | 'online' | 'otb' | 'ai';
+
+/** Games against the built-in AI stand on their own; the rest split on whether
+ * they were played on a server or across a real board. */
+function scopeOf(g: GameDoc): Exclude<Scope, 'all'> {
+  if (g.source === 'go-training') return 'ai';
+  return gameEvent(g) === ONLINE_EVENT ? 'online' : 'otb';
+}
+const inScope = (g: GameDoc, scope: Scope) => scope === 'all' || scopeOf(g) === scope;
+
+const eventChipKey = (event: string) => `ev:${event}`;
+const rankChipKey = (rank: string) => `rk:${rank}`;
+
 /** The owner's player name on a marked upload (myColor set), for the name
  * filter chips. Null when unmarked — those games are always shown. */
 function uploadPlayerName(g: GameDoc): string | null {
@@ -27,10 +42,14 @@ function uploadPlayerName(g: GameDoc): string | null {
 }
 const uploadChipKey = (name: string) => `up:${name}`;
 
-/** The filter-chip keys a game can be matched by: its Fox participants, the
- * vs-KataGo tag, or the owner's name on a marked upload. A game with no keys
- * (e.g. an unmarked upload) carries no tag and is always shown. */
-function gameChipKeys(g: GameDoc): string[] {
+/** The filter-chip keys a game can be matched by. Over the board that's its
+ * event and against the AI its opponent rank — neither is told apart by who
+ * played, since that is always the owner. Otherwise it's its Fox participants, the vs-KataGo tag, or the
+ * owner's name on a marked upload; a game with no keys carries no tag and is
+ * always shown. */
+function gameChipKeys(g: GameDoc, scope: Scope): string[] {
+  if (scope === 'otb') return [eventChipKey(gameEvent(g))];
+  if (scope === 'ai') return [rankChipKey(g.rankLabel ?? '')];
   if (g.source === 'go-training') return [LOCAL_AI];
   if (g.source === 'upload') {
     const name = uploadPlayerName(g);
@@ -39,11 +58,20 @@ function gameChipKeys(g: GameDoc): string[] {
   return [g.blackUid, g.whiteUid].filter((u): u is number => u != null).map(String);
 }
 
-/** The filter chips one owner's games offer: their tracked Fox accounts, the
- * vs-KataGo tag when they have such a game, and the owner's name on each marked
- * upload. Opponents are deliberately absent — a game is filtered by whose game
- * it is, not by who it was against. */
-function chipsFor(games: GameDoc[], accounts: FoxAccountDoc[]): Chip[] {
+/** The filter chips one owner's games offer. Over the board: one per distinct
+ * event. Against the AI: one per opponent rank. Otherwise their tracked Fox accounts, the vs-KataGo tag when they have
+ * such a game, and the owner's name on each marked upload — opponents are
+ * deliberately absent, since a game is filtered by whose game it is, not by who
+ * it was against. */
+function chipsFor(games: GameDoc[], accounts: FoxAccountDoc[], scope: Scope): Chip[] {
+  if (scope === 'otb') {
+    const events = [...new Set(games.map(gameEvent))].sort();
+    return events.map((e) => ({ key: eventChipKey(e), label: e || 'No event' }));
+  }
+  if (scope === 'ai') {
+    const ranks = [...new Set(games.map((g) => g.rankLabel ?? ''))].sort();
+    return ranks.map((r) => ({ key: rankChipKey(r), label: r || 'Unknown rank' }));
+  }
   const list: Chip[] = accounts.map((a) => ({ key: String(a.uid), label: a.username }));
   if (games.some((g) => g.source === 'go-training')) {
     list.push({ key: LOCAL_AI, label: 'vs KataGo' });
@@ -58,12 +86,14 @@ function chipsFor(games: GameDoc[], accounts: FoxAccountDoc[]): Chip[] {
 }
 
 /** Show everything: every chip on offer starts selected. */
-function defaultSelection(games: GameDoc[], accounts: FoxAccountDoc[]): Set<string> {
-  return new Set(chipsFor(games, accounts).map((c) => c.key));
+function defaultSelection(games: GameDoc[], accounts: FoxAccountDoc[], scope: Scope): Set<string> {
+  return new Set(chipsFor(games, accounts, scope).map((c) => c.key));
 }
 
-/** Games one owner shared — the teacher view's scope. */
-const gamesOf = (games: GameDoc[], ownerUid: string) => games.filter((g) => g.ownerUid === ownerUid);
+/** The games this page covers: one owner's (the teacher view picks whose), in
+ * the half of the list this page shows. */
+const gamesOf = (games: GameDoc[], ownerUid: string, scope: Scope) =>
+  games.filter((g) => g.ownerUid === ownerUid && inScope(g, scope));
 
 /** Download a game's SGF, injecting the display name as GN when the stored
  * SGF lacks one — the file carries all metadata for use elsewhere. */
@@ -119,6 +149,8 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
     [moves, game.sgf],
   );
   const info = sgfInfo(game.sgf);
+  const name = gameName(game);
+  const event = gameEvent(game);
   return (
     <div
       className={`game-card${outcome ? ` game-card--${outcome}` : ''}`}
@@ -162,8 +194,8 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
       </div>
       <div className="game-card-meta">
         <div className="game-card-title">
-          <span className="game-card-name">{gameName(game)}</span>
-          <span className="game-card-date">{shortDate(game.createdAt)}</span>
+          <span className="game-card-name">{name}</span>
+          <span className="game-card-date">{shortDate(gameDate(game))}</span>
         </div>
         <div className="game-card-players">
           <span className="gcp-name">{info.playerBlack || 'Black'}</span>
@@ -173,6 +205,7 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
           {info.rankWhite && <span className="review-rank">[{info.rankWhite}]</span>}
         </div>
         <div className="game-card-sub">
+          {event && event !== name && <>{event} · </>}
           {moves.length} moves ·{' '}
           <span className={outcome ? `game-result game-result--${outcome}` : undefined}>
             {resultLabel(game)}
@@ -185,10 +218,12 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
 
 /** Game review browser. In student view it's your own games, deletable. In
  * teacher view it's one student's shared games at a time, read-only, picked
- * from a student chip row. Either way the list is scoped to a single owner and
- * filtered by that owner's player-name chips (Fox accounts, vs-KataGo, upload
- * names). */
-export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
+ * from a student chip row. Either way the list is scoped to a single owner,
+ * to one half of their games (`scope`), and filtered by chips over that half. */
+export function Review({ teacherMode = false, scope = 'all' }: {
+  teacherMode?: boolean;
+  scope?: Scope;
+}) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [games, setGames] = useState<GameDoc[] | null>(null);
@@ -216,7 +251,10 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
       if (p <= 0) next.delete('page'); else next.set('page', String(p));
       return next;
     }, { replace: true });
-  const backTo = searchParams.toString() ? `/review?${searchParams}` : '/review';
+  const basePath = scope === 'online' ? '/review/online'
+    : scope === 'otb' ? '/review/over-the-board'
+      : scope === 'ai' ? '/review/ai' : '/review';
+  const backTo = searchParams.toString() ? `${basePath}?${searchParams}` : basePath;
 
   useEffect(() => {
     if (!user) return;
@@ -238,7 +276,9 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setGames(all);
           setMyUids(new Set(accountLists.flat().filter((a) => a.isMine).map((a) => a.uid)));
           setStudent(first);
-          setSelected(first ? defaultSelection(gamesOf(all, first), byOwner[first]) : new Set());
+          setSelected(first
+            ? defaultSelection(gamesOf(all, first, scope), byOwner[first], scope)
+            : new Set());
         })
         .catch(() => { if (active) setGames([]); });
     } else {
@@ -249,13 +289,13 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
           setAccountsByOwner({ [uid]: a });
           setGames(own);
           setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-          setSelected(defaultSelection(own, a));
+          setSelected(defaultSelection(gamesOf(own, uid, scope), a, scope));
         })
         .catch(() => { if (active) setGames([]); });
       foxAvailable().then((ok) => { if (active) setFoxOk(ok); });
     }
     return () => { active = false; };
-  }, [user, teacherMode]);
+  }, [user, teacherMode, scope]);
 
   // Everything below is scoped to one owner: the viewer, or the student whose
   // chip is active. Teacher and student view then behave identically.
@@ -265,13 +305,13 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     [accountsByOwner, scopeUid],
   );
   const scoped = useMemo(
-    () => (scopeUid ? gamesOf(games ?? [], scopeUid) : []),
-    [games, scopeUid],
+    () => (scopeUid ? gamesOf(games ?? [], scopeUid, scope) : []),
+    [games, scopeUid, scope],
   );
 
   // Player-name chips: Fox accounts + vs-KataGo + upload names. A teacher sees
   // the selected student's names — the same ones that student sees.
-  const chips = useMemo(() => chipsFor(scoped, accounts), [scoped, accounts]);
+  const chips = useMemo(() => chipsFor(scoped, accounts, scope), [scoped, accounts, scope]);
   const chipKeys = useMemo(() => new Set(chips.map((c) => c.key)), [chips]);
 
   const studentChips = useMemo(
@@ -284,11 +324,11 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   const visible = useMemo(
     () => scoped
       .filter((g) => {
-        const keys = gameChipKeys(g).filter((k) => chipKeys.has(k));
+        const keys = gameChipKeys(g, scope).filter((k) => chipKeys.has(k));
         return keys.length === 0 || keys.some((k) => selected.has(k));
       })
-      .sort((a, b) => b.createdAt - a.createdAt),
-    [scoped, selected, chipKeys],
+      .sort((a, b) => gameDate(b) - gameDate(a)),
+    [scoped, selected, chipKeys, scope],
   );
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -308,7 +348,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
   // all selected.
   const pickStudent = (uid: string) => {
     setStudent(uid);
-    setSelected(defaultSelection(gamesOf(games ?? [], uid), accountsByOwner[uid] ?? []));
+    setSelected(defaultSelection(gamesOf(games ?? [], uid, scope), accountsByOwner[uid] ?? [], scope));
     setPage(0);
   };
 
@@ -320,7 +360,7 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
     setGames(own);
     setAccountsByOwner({ [user.uid]: a });
     setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid)));
-    setSelected((s) => new Set([...s, ...a.map((x) => String(x.uid))]));
+    setSelected((s) => new Set([...s, ...chipsFor(gamesOf(own, user.uid, scope), a, scope).map((c) => c.key)]));
   };
 
   const remove = async (id: string) => {
@@ -332,19 +372,25 @@ export function Review({ teacherMode = false }: { teacherMode?: boolean }) {
 
   if (games === null) return <div className="center-screen"><Spinner /></div>;
 
+  const heading = scope === 'online' ? 'Online games'
+    : scope === 'otb' ? 'Over-the-board games'
+      : scope === 'ai' ? 'Games vs AI'
+        : teacherMode ? 'Shared games' : 'Games';
   const studentName = students.find((s) => s.uid === student)?.displayName ?? 'this student';
   const emptyMessage = teacherMode
     ? (students.length === 0 ? 'No linked students yet.'
         : scoped.length === 0 ? `No games shared by ${studentName}.`
           : 'No games match the selected filters.')
-    : (chips.length === 0
-        ? (foxOk ? 'Add a player with “Manage players” to import games.' : 'No games yet.')
-        : 'No games match the selected filters.');
+    : (scoped.length > 0 ? 'No games match the selected filters.'
+        : scope === 'otb' ? 'No over-the-board games yet — upload one and give it an event.'
+          : scope === 'ai' ? 'No games against the AI yet — play one and save it.'
+            : foxOk ? 'Add a player with “Manage players” to import games.'
+              : 'No games yet.');
 
   return (
     <div className="review">
       <div className="review-head">
-        <h1>{teacherMode ? 'Shared games' : 'Games'}</h1>
+        <h1>{heading}</h1>
         {!teacherMode && (
           <div className="review-head-actions">
             <button type="button" className="review-manage" onClick={() => setUploading(true)}>

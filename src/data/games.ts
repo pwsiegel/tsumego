@@ -23,6 +23,27 @@ export function gameOutcome(game: GameDoc, myUids: Set<number>): 'win' | 'loss' 
   return winner === myColor ? 'win' : 'loss';
 }
 
+/** The event carried by a game played against a person on a server. Sorts the
+ * review list; games against the built-in AI are told apart by their source. */
+export const ONLINE_EVENT = 'Online game';
+
+/** Where the game was played, for display. Uploads carry their SGF's EV tag;
+ * a server game is online by construction, so nothing is stored for it. */
+export function gameEvent(game: GameDoc): string {
+  if (game.event) return game.event;
+  if (game.source === 'fox') return ONLINE_EVENT;
+  if (game.source === 'go-training') return 'vs KataGo';
+  return '';
+}
+
+/** When the game was played: its own date when it has one, else when the record
+ * was added. A bare SGF date is read as local midnight, so it renders as the
+ * day it says rather than the one before in western time zones. */
+export function gameDate(game: GameDoc): number {
+  const t = game.date ? Date.parse(`${game.date.trim()}T00:00:00`) : NaN;
+  return Number.isFinite(t) ? t : game.createdAt;
+}
+
 export async function saveGame(game: Omit<GameDoc, 'id'>): Promise<GameDoc> {
   const id = doc(collection(db, 'games')).id;
   const record: GameDoc = { ...game, id };
