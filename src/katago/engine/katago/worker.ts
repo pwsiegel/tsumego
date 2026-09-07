@@ -2,13 +2,10 @@
 
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgpu';
-import '@tensorflow/tfjs-backend-wasm';
-import { setThreadsCount, setWasmPaths } from '@tensorflow/tfjs-backend-wasm';
 import pako from 'pako';
 
 import type { KataGoAnalyzeRequest, KataGoWorkerRequest, KataGoWorkerResponse } from './types';
-import type { BoardState, GameRules, KataGoBackendPreference, Move, Player, RegionOfInterest } from '../../types';
-import { publicUrl } from '../../utils/publicUrl';
+import type { BoardState, GameRules, Move, Player, RegionOfInterest } from '../../types';
 import { getAnimationNow } from '../../utils/animationFrame';
 import { parseKataGoModelV8 } from './loadModelV8';
 import { KataGoModelV8Tf } from './modelV8';
@@ -16,11 +13,6 @@ import { ENGINE_MAX_TIME_MS, ENGINE_MAX_VISITS } from './limits';
 import { autoBatchSize, type EnginePerf } from './autoBatch';
 import { MctsSearch, type OwnershipMode } from './analyzeMcts';
 import { fillInputsV7Fast, type RecentMove } from './featuresV7Fast';
-import {
-  getKataGoWarmupFallbackBackend,
-  normalizeKataGoBackendPreference,
-  shouldCacheKataGoFallbackForRequest,
-} from './backendFallback';
 import {
   BLACK,
   BOARD_AREA,
@@ -47,7 +39,6 @@ let loadedModelUrl: string | null = null;
 // Drives auto batch sizing when a request omits an explicit batchSize.
 let enginePerf: EnginePerf | null = null;
 let backendPromise: Promise<void> | null = null;
-let backendPreference: KataGoBackendPreference | null = null;
 let prodModeEnabled = false;
 let queue: Promise<void> = Promise.resolve();
 
@@ -291,47 +282,20 @@ function ensureBoardSizeForWorker(boardSize: number): void {
   searchKey = null;
 }
 
-async function initWasmBackend(): Promise<void> {
+// WebGPU is the only backend we run. The CPU/wasm paths reached the same
+// answers roughly 12x slower per evaluation, which cannot finish a useful
+// search, so failing loudly beats degrading into something unusable.
+const NO_WEBGPU =
+  'WebGPU is unavailable in this browser, and the analysis net runs on WebGPU only.';
+
+async function initBackend(): Promise<void> {
   try {
-    // Vite serves `public/` at the site root.
-    setWasmPaths(publicUrl('tfjs/'));
-    // Use a reasonable thread count for XNNPACK when cross-origin isolated (SharedArrayBuffer).
-    // Without COOP/COEP headers, browsers disable threads and TFJS will fall back to single-threaded wasm.
-    const isCrossOriginIsolated = (globalThis as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
-    if (isCrossOriginIsolated) {
-      const hc = (globalThis as unknown as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 1;
-      const numThreads = Math.max(1, Math.min(8, Math.floor(hc)));
-      setThreadsCount(numThreads);
-    }
-    await tf.setBackend('wasm');
+    await tf.setBackend('webgpu');
     await tf.ready();
-    return;
-  } catch {
-    // Fall through to CPU below.
+  } catch (err) {
+    throw new Error(`${NO_WEBGPU} (${err instanceof Error ? err.message : String(err)})`);
   }
-
-  await tf.setBackend('cpu');
-  await tf.ready();
-}
-
-async function initBackend(preferredBackend: KataGoBackendPreference): Promise<void> {
-  if (preferredBackend === 'cpu') {
-    await tf.setBackend('cpu');
-    await tf.ready();
-    return;
-  }
-
-  if (preferredBackend === 'webgpu') {
-    try {
-      await tf.setBackend('webgpu');
-      await tf.ready();
-      return;
-    } catch {
-      // Fall back to WASM/CPU if WebGPU isn't available or fails to initialize.
-    }
-  }
-
-  await initWasmBackend();
+  if (tf.getBackend() !== 'webgpu') throw new Error(NO_WEBGPU);
 }
 
 function maybeUngzip(data: Uint8Array): Uint8Array {
@@ -340,9 +304,8 @@ function maybeUngzip(data: Uint8Array): Uint8Array {
   return data;
 }
 
-async function ensureBackend(backend?: KataGoBackendPreference): Promise<void> {
-  const preferredBackend = normalizeKataGoBackendPreference(backend);
-  if (backendPromise && backendPreference === preferredBackend) {
+async function ensureBackend(): Promise<void> {
+  if (backendPromise) {
     await backendPromise;
     return;
   }
@@ -355,8 +318,7 @@ async function ensureBackend(backend?: KataGoBackendPreference): Promise<void> {
   search = null;
   searchKey = null;
 
-  backendPreference = preferredBackend;
-  backendPromise = initBackend(preferredBackend)
+  backendPromise = initBackend()
       .then(() => {
         if (!prodModeEnabled) {
           tf.enableProdMode();
@@ -365,7 +327,6 @@ async function ensureBackend(backend?: KataGoBackendPreference): Promise<void> {
       })
       .catch((err) => {
         backendPromise = null;
-        backendPreference = null;
         throw err;
       });
   await backendPromise;
@@ -442,18 +403,6 @@ function installModel(nextModel: KataGoModelV8Tf, parsed: ParsedKataGoModelV8, m
   searchKey = null;
 }
 
-async function switchToFallbackBackendForRequest(
-  requestedBackend: KataGoBackendPreference,
-  fallbackBackend: KataGoBackendPreference
-): Promise<void> {
-  backendPromise = null;
-  backendPreference = null;
-  await ensureBackend(fallbackBackend);
-  if (shouldCacheKataGoFallbackForRequest({ requestedBackend, fallbackBackend: tf.getBackend() })) {
-    backendPreference = requestedBackend;
-  }
-}
-
 // Human-readable net name from a (Firebase Storage) model URL, for status
 // events before the file is parsed: ".../o/katago%2Fkata1-b18.bin.gz?token=…".
 function modelNameFromUrl(modelUrl: string): string {
@@ -465,9 +414,9 @@ function modelNameFromUrl(modelUrl: string): string {
   }
 }
 
-async function ensureModel(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
+async function ensureModel(modelUrl: string): Promise<void> {
   try {
-    await ensureModelInner(modelUrl, backend);
+    await ensureModelInner(modelUrl);
   } catch (err) {
     post({
       type: 'katago:model_status', status: 'error',
@@ -478,9 +427,8 @@ async function ensureModel(modelUrl: string, backend?: KataGoBackendPreference):
   }
 }
 
-async function ensureModelInner(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
-  const requestedBackend = normalizeKataGoBackendPreference(backend);
-  await ensureBackend(requestedBackend);
+async function ensureModelInner(modelUrl: string): Promise<void> {
+  await ensureBackend();
   if (model && loadedModelUrl === modelUrl) return;
 
   post({ type: 'katago:model_status', status: 'loading', modelName: modelNameFromUrl(modelUrl) });
@@ -490,27 +438,9 @@ async function ensureModelInner(modelUrl: string, backend?: KataGoBackendPrefere
   const data = maybeUngzip(buf);
 
   const parsed = parseKataGoModelV8(data);
-  const attemptedFallbacks = new Set<KataGoBackendPreference>();
-  while (true) {
-    try {
-      installModel(await createWarmedModel(parsed), parsed, modelUrl);
-      if (model) enginePerf = await measureEnginePerf(model);
-      post({ type: 'katago:model_status', status: 'ready', modelName: loadedModelName ?? parsed.modelName });
-      return;
-    } catch (err) {
-      const fallbackBackend = getKataGoWarmupFallbackBackend({
-        requestedBackend,
-        activeBackend: tf.getBackend(),
-        stage: 'warmup',
-      });
-      if (!fallbackBackend || attemptedFallbacks.has(fallbackBackend)) {
-        throw err;
-      }
-
-      attemptedFallbacks.add(fallbackBackend);
-      await switchToFallbackBackendForRequest(requestedBackend, fallbackBackend);
-    }
-  }
+  installModel(await createWarmedModel(parsed), parsed, modelUrl);
+  if (model) enginePerf = await measureEnginePerf(model);
+  post({ type: 'katago:model_status', status: 'ready', modelName: loadedModelName ?? parsed.modelName });
 }
 
 function post(msg: KataGoWorkerResponse, transfer?: Transferable[]) {
@@ -520,7 +450,7 @@ function post(msg: KataGoWorkerResponse, transfer?: Transferable[]) {
 
 async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
   if (msg.type === 'katago:init') {
-    await ensureModel(msg.modelUrl, msg.backend);
+    await ensureModel(msg.modelUrl);
     post({
       type: 'katago:init_result',
       ok: true,
@@ -532,7 +462,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
   }
 
   if (msg.type === 'katago:eval') {
-    await ensureModel(msg.modelUrl, msg.backend);
+    await ensureModel(msg.modelUrl);
     if (!model) throw new Error('Model not loaded');
     ensureBoardSizeForWorker(msg.board.length);
     const boardSize = BOARD_SIZE;
@@ -587,7 +517,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
   }
 
   if (msg.type === 'katago:human_policy') {
-    await ensureModel(msg.modelUrl, msg.backend);
+    await ensureModel(msg.modelUrl);
     if (!model) throw new Error('Model not loaded');
     if (!model.hasMetaEncoder) throw new Error('Model has no metadata encoder — not a human-SL net');
     ensureBoardSizeForWorker(msg.board.length);
@@ -668,7 +598,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
   }
 
   if (msg.type === 'katago:eval_batch') {
-    await ensureModel(msg.modelUrl, msg.backend);
+    await ensureModel(msg.modelUrl);
     if (!model) throw new Error('Model not loaded');
 
     const conservativePass = msg.conservativePass !== false;
@@ -769,7 +699,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
       return;
     }
 
-    await ensureModel(msg.modelUrl, msg.backend);
+    await ensureModel(msg.modelUrl);
     if (!model) throw new Error('Model not loaded');
     if (shouldAbort()) {
       postCanceled();
@@ -782,7 +712,7 @@ async function handleMessage(msg: KataGoWorkerRequest): Promise<void> {
     const maxVisits = Math.max(16, Math.min(msg.visits ?? 256, ENGINE_MAX_VISITS));
     const maxTimeMs = Math.max(25, Math.min(msg.maxTimeMs ?? 800, ENGINE_MAX_TIME_MS));
     // Omitted batchSize = auto: size each GPU dispatch to a latency budget from
-    // the measured forward-pass timings (WebGPU only; wasm/cpu keep a small batch).
+    // the measured forward-pass timings.
     const defaultBatch = tf.getBackend() === 'webgpu' ? autoBatchSize(enginePerf) : 4;
     const batchSize = Math.max(1, Math.min(msg.batchSize ?? defaultBatch, 64));
     const maxChildren = Math.max(4, Math.min(msg.maxChildren ?? 64, BOARD_AREA));

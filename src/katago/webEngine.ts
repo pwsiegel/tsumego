@@ -27,7 +27,6 @@ export type AnalysisModel = {
 
 export const BROWSER_MODELS: AnalysisModel[] = [
   { id: 'b18', name: 'kata1-b18c384nbt', runtime: 'WebGPU', strength: 'strong', kind: 'browser', netPath: 'katago/kata1-b18c384nbt.bin.gz', defaultVisits: 50 },
-  { id: 'b6', name: 'g170-b6c96', runtime: 'WebGPU', strength: 'fast, much weaker', kind: 'browser', netPath: 'katago/g170-b6c96.bin.gz', defaultVisits: 100 },
 ];
 
 // The native KataGo backend (real engine) — only offered when it's reachable
@@ -36,16 +35,11 @@ export const LOCAL_MODEL: AnalysisModel = {
   id: 'local', name: 'kata1-b18c384nbt', runtime: 'Metal (native)', strength: 'strong', kind: 'local', defaultVisits: 1000,
 };
 
-/** Browser net to fall back to when WebGPU is unavailable. b18 on the wasm/CPU
- * fallback is ~12x slower per eval and can't search within the time budget, so
- * the small b6 net (which can) is the right choice there. */
-export const FALLBACK_MODEL_ID = 'b6';
-
 let webgpuAvailablePromise: Promise<boolean> | null = null;
 /** Whether a real (non-software) WebGPU adapter is available — the signal for
- * whether b18 can run on the GPU. Cached; safe to call repeatedly. Mirrors what
+ * whether analysis can run at all. Cached; safe to call repeatedly. Mirrors what
  * the worker's `tf.setBackend('webgpu')` will get, so a null/fallback adapter
- * here means analysis would land on wasm. */
+ * here means the engine cannot start. */
 export function webgpuAvailable(): Promise<boolean> {
   if (!webgpuAvailablePromise) {
     webgpuAvailablePromise = (async () => {
@@ -193,7 +187,6 @@ export async function scoreTrajectory(args: {
     const slice = args.positions.slice(i, i + chunk);
     const evals = await client.evaluateBatch({
       modelUrl,
-      backend: 'webgpu',
       positions: slice.map((p) => ({
         board: toBoardState(p.stones),
         previousBoard: p.previousStones ? toBoardState(p.previousStones) : undefined,
@@ -252,7 +245,6 @@ export async function genmoveBrowser(args: {
   client.cancelAnalyses();
   const query = {
     modelUrl: await storageUrl(HUMAN_NET_PATH),
-    backend: 'webgpu' as const,
     board: toBoardState(args.stones),
     previousBoard: args.previousStones ? toBoardState(args.previousStones) : undefined,
     currentPlayer: toPlayer(args.toPlay),
@@ -394,7 +386,6 @@ async function valueOf(
   }
   const e = await getKataGoEngineClient().evaluate({
     modelUrl: await netUrl(model),
-    backend: 'webgpu',
     board: toBoardState(stones),
     currentPlayer: toPlayer(toPlay),
     moveHistory: toEngineMoves(moves),
@@ -416,7 +407,6 @@ async function analyzeBrowser(args: AnalyzeArgs): Promise<WebAnalysis | null> {
       positionId: args.positionId,
       parentPositionId: args.parentPositionId,
       modelUrl,
-      backend: 'webgpu',
       board: toBoardState(args.stones),
       previousBoard: args.previousStones ? toBoardState(args.previousStones) : undefined,
       previousPreviousBoard: args.previousPreviousStones ? toBoardState(args.previousPreviousStones) : undefined,

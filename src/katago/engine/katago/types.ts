@@ -1,10 +1,9 @@
-import type { BoardState, FloatArray, GameRules, KataGoBackendPreference, Move, Player, RegionOfInterest } from '../../types';
+import type { BoardState, FloatArray, GameRules, Move, Player, RegionOfInterest } from '../../types';
 import type { EnginePerf } from './autoBatch';
 
 export interface KataGoInitRequest {
   type: 'katago:init';
   modelUrl: string;
-  backend?: KataGoBackendPreference;
 }
 
 export interface KataGoInitResponse {
@@ -25,7 +24,6 @@ export interface KataGoAnalyzeRequest {
   positionKey?: string;
   parentPositionKey?: string;
   modelUrl: string;
-  backend?: KataGoBackendPreference;
   board: BoardState;
   previousBoard?: BoardState;
   previousPreviousBoard?: BoardState;
@@ -107,7 +105,6 @@ export interface KataGoEvalRequest {
   type: 'katago:eval';
   id: number;
   modelUrl: string;
-  backend?: KataGoBackendPreference;
   board: BoardState;
   previousBoard?: BoardState;
   previousPreviousBoard?: BoardState;
@@ -138,7 +135,6 @@ export interface KataGoEvalBatchRequest {
   type: 'katago:eval_batch';
   id: number;
   modelUrl: string;
-  backend?: KataGoBackendPreference;
   positions: Array<{
     board: BoardState;
     previousBoard?: BoardState;
@@ -171,7 +167,6 @@ export interface KataGoHumanPolicyRequest {
   type: 'katago:human_policy';
   id: number;
   modelUrl: string;
-  backend?: KataGoBackendPreference;
   board: BoardState;
   previousBoard?: BoardState;
   previousPreviousBoard?: BoardState;

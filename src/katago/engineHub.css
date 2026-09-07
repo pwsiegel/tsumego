@@ -54,3 +54,14 @@
 .eh-status-note {
   color: var(--text-muted);
 }
+
+.eh-status-error {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--error-border);
+  background: var(--error-bg-soft);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}

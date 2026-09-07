@@ -1,6 +1,6 @@
 import type { KataGoWorkerRequest, KataGoWorkerResponse } from './types';
 import type { EnginePerf } from './autoBatch';
-import type { BoardState, GameRules, KataGoBackendPreference, Move, Player, RegionOfInterest } from '../../types';
+import type { BoardState, GameRules, Move, Player, RegionOfInterest } from '../../types';
 import { getWorkerConstructor } from '../../utils/browserWorker';
 import { publicUrl } from '../../utils/publicUrl';
 
@@ -200,11 +200,11 @@ class KataGoEngineClient {
     return this.chosenBatchSize;
   }
 
-  init(modelUrl: string, backend?: KataGoBackendPreference): Promise<void> {
+  init(modelUrl: string): Promise<void> {
     if (this.pendingInit) return Promise.reject(new Error('Init already in progress'));
     return new Promise<void>((resolve, reject) => {
       this.pendingInit = { resolve, reject };
-      const initMsg: KataGoWorkerRequest = { type: 'katago:init', modelUrl, backend };
+      const initMsg: KataGoWorkerRequest = { type: 'katago:init', modelUrl };
       try {
         this.postToWorker(initMsg);
       } catch (err) {
@@ -221,7 +221,6 @@ class KataGoEngineClient {
     positionKey?: string;
     parentPositionKey?: string;
     modelUrl: string;
-    backend?: KataGoBackendPreference;
     board: BoardState;
     previousBoard?: BoardState;
     previousPreviousBoard?: BoardState;
@@ -256,7 +255,6 @@ class KataGoEngineClient {
       positionKey: args.positionKey,
       parentPositionKey: args.parentPositionKey,
       modelUrl: args.modelUrl,
-      backend: args.backend,
       board: args.board,
       previousBoard: args.previousBoard,
       previousPreviousBoard: args.previousPreviousBoard,
@@ -294,7 +292,6 @@ class KataGoEngineClient {
 
   async evaluate(args: {
     modelUrl: string;
-    backend?: KataGoBackendPreference;
     board: BoardState;
     previousBoard?: BoardState;
     previousPreviousBoard?: BoardState;
@@ -309,7 +306,6 @@ class KataGoEngineClient {
       type: 'katago:eval',
       id,
       modelUrl: args.modelUrl,
-      backend: args.backend,
       board: args.board,
       previousBoard: args.previousBoard,
       previousPreviousBoard: args.previousPreviousBoard,
@@ -333,7 +329,6 @@ class KataGoEngineClient {
 
   async evaluateBatch(args: {
     modelUrl: string;
-    backend?: KataGoBackendPreference;
     positions: Array<{
       board: BoardState;
       previousBoard?: BoardState;
@@ -350,7 +345,6 @@ class KataGoEngineClient {
       type: 'katago:eval_batch',
       id,
       modelUrl: args.modelUrl,
-      backend: args.backend,
       positions: args.positions.map((p) => ({
         board: p.board,
         previousBoard: p.previousBoard,
@@ -378,7 +372,6 @@ class KataGoEngineClient {
    * distribution (index y*19+x, pass = 361) over legal moves. */
   async humanPolicy(args: {
     modelUrl: string;
-    backend?: KataGoBackendPreference;
     board: BoardState;
     previousBoard?: BoardState;
     previousPreviousBoard?: BoardState;
@@ -393,7 +386,6 @@ class KataGoEngineClient {
       type: 'katago:human_policy',
       id,
       modelUrl: args.modelUrl,
-      backend: args.backend,
       board: args.board,
       previousBoard: args.previousBoard,
       previousPreviousBoard: args.previousPreviousBoard,

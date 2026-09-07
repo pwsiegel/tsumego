@@ -10,7 +10,7 @@ import {
   useSyncExternalStore, type ReactNode,
 } from 'react';
 import {
-  BROWSER_MODELS, LOCAL_MODEL, FALLBACK_MODEL_ID, webgpuAvailable, analyzePosition,
+  BROWSER_MODELS, LOCAL_MODEL, webgpuAvailable, analyzePosition,
   type AnalysisModel,
 } from './webEngine';
 import { katagoBackendAvailable } from '../data/katago';
@@ -44,6 +44,9 @@ const DEFAULT_PLAY: PlayDefaults = {
 
 export type EngineHealth = 'warming' | 'ready' | 'down' | 'blocked';
 
+const WEBGPU_NOTE =
+  'This browser has no WebGPU adapter, so the analysis net cannot run. Chrome or Edge 113+ on a machine with a supported GPU will run it; Safari and Firefox need WebGPU enabled in their settings.';
+
 type Hub = {
   models: AnalysisModel[];
   model: AnalysisModel;
@@ -56,6 +59,7 @@ type Hub = {
   batchOverride: number | null;
   setBatchOverride: (b: number | null) => void;
   health: EngineHealth;
+  healthNote: string | null;       // why the engine is down, when it is
   leaseStatus: LeaseStatus;
   engineReady: boolean;            // safe to issue analysis calls now
   play: PlayDefaults;              // human-like opponent settings, live
@@ -102,17 +106,13 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
     return () => { on = false; };
   }, []);
 
-  // Seed from the saved preference once backend availability is known. b18 on
-  // the wasm fallback can't search, so without a real WebGPU adapter a browser
-  // choice drops to the small b6 net.
+  // Seed from the saved preference once backend availability is known.
   useEffect(() => {
     if (localAvailable === null || userPicked.current) return;
     const saved = localOk ? profile?.enginePrefs?.localModelId : profile?.enginePrefs?.browserModelId;
     const valid = saved === 'local' ? localOk : isBrowserModel(saved);
-    let desired = valid ? saved! : DEFAULT_MODEL_ID;
-    if (desired !== 'local' && webgpuOk === false) desired = FALLBACK_MODEL_ID;
-    setModelId(desired);
-  }, [localAvailable, localOk, webgpuOk, profile]);
+    setModelId(valid ? saved! : DEFAULT_MODEL_ID);
+  }, [localAvailable, localOk, profile]);
 
   // Seed the opponent settings from the saved profile once, then local state is
   // authoritative (and is written back on every change).
@@ -185,16 +185,23 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
   // The worker's own account of its resident model outranks our bookkeeping:
   // it also covers nets other surfaces load (e.g. Play's human net).
   const worker: KataGoModelStatus = useSyncExternalStore(subscribeModelStatus, getModelStatus, getModelStatus);
+  // No WebGPU adapter means the browser engine cannot run at all — a hard
+  // failure that outranks every other state, since nothing else can fix it.
+  const noWebgpu = model.kind === 'browser' && webgpuOk === false;
   // Blocked only when the SELECTED model needs the browser engine and can't
   // have it; a native selection stays green while another tab uses the GPU.
   const health: EngineHealth =
-    model.kind === 'browser' && (leaseStatus === 'waiting' || heldElsewhere) ? 'blocked'
-      : worker.status === 'loading' ? 'warming'
-        : worker.status === 'error' ? 'down'
-          : worker.status === 'ready' ? 'ready'
-            : warmState === 'pending' ? 'warming'
-              : warmState === 'failed' ? 'down'
-                : 'ready';
+    noWebgpu ? 'down'
+      : model.kind === 'browser' && (leaseStatus === 'waiting' || heldElsewhere) ? 'blocked'
+        : worker.status === 'loading' ? 'warming'
+          : worker.status === 'error' ? 'down'
+            : worker.status === 'ready' ? 'ready'
+              : warmState === 'pending' ? 'warming'
+                : warmState === 'failed' ? 'down'
+                  : 'ready';
+  const healthNote = noWebgpu ? WEBGPU_NOTE
+    : health === 'down' ? 'The analysis engine failed to start. Reloading the page usually clears it.'
+      : null;
   const loadedModelName = worker.modelName ?? model.name;
   const engineReady = model.kind !== 'browser' || leaseStatus === 'active';
 
@@ -202,6 +209,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
     models,
     model,
     loadedModelName,
+    healthNote,
     modelId: model.id,
     pickModel,
     visitsByModel,
@@ -227,6 +235,7 @@ export function EngineHubProvider({ children }: { children: ReactNode }) {
             <span className="eh-status-note"> · browser engine in use by another tab</span>
           )}
         </p>
+        {healthNote && <p className="eh-status-error">{healthNote}</p>}
         <AnalysisSettings
           models={models}
           modelId={model.id}
@@ -255,13 +264,15 @@ function HealthDot({ health }: { health: EngineHealth }) {
 
 /** Sidebar button: current model + health; opens the shared settings modal. */
 export function EngineStatusButton() {
-  const { loadedModelName, health, openSettings } = useEngineHub();
+  const { loadedModelName, health, healthNote, openSettings } = useEngineHub();
   return (
     <button
       type="button"
       className="eh-button"
       onClick={openSettings}
-      title={`AI engine: ${loadedModelName} — ${HEALTH_LABEL[health]}`}
+      title={healthNote
+        ? `AI engine: ${loadedModelName} — ${HEALTH_LABEL[health]}. ${healthNote}`
+        : `AI engine: ${loadedModelName} — ${HEALTH_LABEL[health]}`}
     >
       <HealthDot health={health} />
       <span className="eh-button-name">{loadedModelName}</span>

@@ -6,7 +6,6 @@ export type Player = 'black' | 'white';
 export type Intersection = Player | null;
 export type BoardState = Intersection[][];
 export type GameRules = 'japanese' | 'chinese' | 'korean';
-export type KataGoBackendPreference = 'wasm' | 'webgpu' | 'cpu';
 export type FloatArray = Float32Array | number[];
 
 export interface Move {
@@ -163,7 +162,6 @@ export interface GameSettings {
   analysisPolicyMetric: 'policy' | 'delta_score' | 'delta_winrate';
   analysisShowOwnership: boolean; // T
   katagoModelUrl: string;
-  katagoBackend: KataGoBackendPreference;
   katagoVisits: number;
   katagoFastVisits: number; // KaTrain fast_visits (used for initial/quick analysis)
   katagoMaxTimeMs: number;

@@ -19,7 +19,6 @@ export default defineConfig({
     include: [
       '@tensorflow/tfjs',
       '@tensorflow/tfjs-backend-webgpu',
-      '@tensorflow/tfjs-backend-wasm',
       'pako',
     ],
   },
