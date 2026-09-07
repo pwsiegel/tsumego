@@ -11,6 +11,7 @@ import { replay } from '../goRules';
 import { Board } from '../Board';
 import { Spinner } from '../Spinner';
 import { FilterChips, type Chip } from '../FilterChips';
+import { downloadSgf } from '../sgfDownload';
 import { ManagePlayersModal } from './ManagePlayersModal';
 import { UploadGameModal } from './UploadGameModal';
 import { EditGameModal } from './EditGameModal';
@@ -95,20 +96,6 @@ function defaultSelection(games: GameDoc[], accounts: FoxAccountDoc[], scope: Sc
  * the half of the list this page shows. */
 const gamesOf = (games: GameDoc[], ownerUid: string, scope: Scope) =>
   games.filter((g) => g.ownerUid === ownerUid && inScope(g, scope));
-
-/** Download a game's SGF, injecting the display name as GN when the stored
- * SGF lacks one — the file carries all metadata for use elsewhere. */
-function downloadSgf(game: GameDoc): void {
-  let sgf = game.sgf;
-  if (game.name && !/\bGN\[/.test(sgf)) {
-    sgf = sgf.replace('(;', `(;GN[${game.name.replace(/([\]\\])/g, '\\$1')}]`);
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([sgf], { type: 'application/x-go-sgf' }));
-  a.download = `${(game.name ?? '').replace(/[^\w\- ]+/g, '').trim() || game.id}.sgf`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
 
 /** Display name for a game card: the stored name, else a source default. */
 function gameName(g: GameDoc): string {

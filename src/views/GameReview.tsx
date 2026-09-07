@@ -19,6 +19,7 @@ import { useAnalysisSession, PONDER_TARGET } from '../katago/useAnalysisSession'
 import { useEngineHub } from '../katago/engineHub';
 import { useEngineLease } from '../katago/engineLease';
 import { Spinner } from '../Spinner';
+import { downloadSgf } from '../sgfDownload';
 import { ReviewGraph } from '../ReviewGraph';
 import './GameReview.css';
 
@@ -864,6 +865,17 @@ export function GameReview({ fresh = false, shared = false }: {
             onClick={() => setAnalyzeOn((o) => !o)}
           >
             {analyzeOn ? 'AI review: on' : 'AI review'}
+          </button>
+        )}
+        {!fresh && (
+          <button
+            type="button"
+            className="gr-gear"
+            onClick={() => downloadSgf(game)}
+            title="Download this game as an SGF file"
+            aria-label="Download SGF"
+          >
+            ⤓
           </button>
         )}
         {analyzing && (
