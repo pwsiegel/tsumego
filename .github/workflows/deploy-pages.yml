@@ -37,6 +37,8 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # Unset falls back to serving the nets from Firebase Storage.
+          VITE_NETS_BASE_URL: ${{ vars.VITE_NETS_BASE_URL }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

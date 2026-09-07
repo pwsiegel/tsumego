@@ -142,9 +142,15 @@ function toWeb(a: KataGoAnalysisPayload, toPlay: Color): WebAnalysis {
   };
 }
 
+// Where the nets are served from. VITE_NETS_BASE_URL points at a CDN holding
+// the same `katago/<file>` layout (public weights, so no auth); unset falls back
+// to Firebase Storage, whose allowlist gate exists only to cap egress.
+const NETS_BASE = (import.meta.env.VITE_NETS_BASE_URL ?? '').replace(/\/+$/, '');
+
 // getDownloadURL is a gated network call (Storage rules) — resolve each net once.
 const urlCache = new Map<string, Promise<string>>();
 function storageUrl(path: string): Promise<string> {
+  if (NETS_BASE) return Promise.resolve(`${NETS_BASE}/${path}`);
   let url = urlCache.get(path);
   if (!url) { url = getDownloadURL(ref(storage, path)); urlCache.set(path, url); }
   return url;
