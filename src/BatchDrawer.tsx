@@ -56,7 +56,7 @@ export function BatchDrawer() {
         </div>
         <div className="batch-drawer-body">
           {batch.length === 0
-            ? <p className="dim">No saved problems yet. Solve a problem and hit Save to add it here.</p>
+            ? <p className="dim">Nothing here yet. Solve a problem and hit “Add to submission” to collect it.</p>
             : <ul className="problem-card-grid sm">
                 {batch.map((a) => <BatchRow key={a.id} attempt={a} index={index} onRemove={() => removeFromBatch(uid, a.problemId).then(refresh)} />)}
               </ul>}
