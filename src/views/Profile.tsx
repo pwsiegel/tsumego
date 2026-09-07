@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../auth';
 import { setDisplayName, setRole } from '../data/profile';
+import { useBackdropDismiss } from '../backdrop';
 import '../Profile.css';
 
 /** Profile settings as a pop-up modal, opened from the sidebar name. */
@@ -34,13 +35,12 @@ export function ProfileModal({ onClose }: { onClose: () => void }) {
   };
 
   return createPortal(
-    <div className="profile-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="profile-modal-backdrop" {...useBackdropDismiss(onClose)} role="presentation">
       <div
         className="profile-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Profile"
-        onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className="profile-modal-close" onClick={onClose} aria-label="Close">×</button>
         <h2>Profile</h2>

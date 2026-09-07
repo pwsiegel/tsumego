@@ -6,6 +6,7 @@ import { PlayView } from './PlayView';
 import { computeNumberedOverlay } from './numberedMoves';
 import { toStones, boundingViewport } from './stones';
 import { imageUrl } from './data/library';
+import { useBackdropDismiss } from './backdrop';
 import type { LibProblem, Move, Verdict } from './data/model';
 import './ProblemModal.css';
 import './Solve.css';
@@ -22,8 +23,8 @@ export function ProblemModalShell({ children }: { children: ReactNode }) {
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [navigate]);
   return (
-    <div className="problem-modal-backdrop" onClick={() => navigate(-1)} role="presentation">
-      <div className="problem-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+    <div className="problem-modal-backdrop" {...useBackdropDismiss(() => navigate(-1))} role="presentation">
+      <div className="problem-modal" role="dialog" aria-modal="true">
         <button type="button" className="problem-modal-close" onClick={() => navigate(-1)} aria-label="Close">×</button>
         {children}
       </div>
@@ -78,8 +79,8 @@ export function SolutionModal({
   const viewport = boundingViewport([...stones, ...pts.map((p) => ({ x: p.x, y: p.y, color: 'B' as const }))], 5);
 
   return (
-    <div className="problem-modal-backdrop" onClick={onClose} role="presentation">
-      <div className="problem-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+    <div className="problem-modal-backdrop" {...useBackdropDismiss(onClose)} role="presentation">
+      <div className="problem-modal" role="dialog" aria-modal="true">
         <button type="button" className="problem-modal-close" onClick={onClose} aria-label="Close">×</button>
         <div className="solution-modal-header">
           <h2>{problem.collection} <span className="solution-modal-counter">#{problem.source_board_idx + 1}</span></h2>

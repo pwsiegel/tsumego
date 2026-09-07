@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { useBackdropDismiss } from './backdrop';
 import './Modal.css';
 
 /** Centered modal dialog over the current view. Closes on backdrop / × / Escape.
@@ -14,6 +15,7 @@ export function Modal({
   className?: string;
   children: ReactNode;
 }) {
+  const backdrop = useBackdropDismiss(onClose);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -30,12 +32,11 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <div className="modal-backdrop" {...backdrop} role="presentation">
       <div
         className={className ? `modal-card ${className}` : 'modal-card'}
         role="dialog"
         aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
           {title && <span className="modal-title">{title}</span>}

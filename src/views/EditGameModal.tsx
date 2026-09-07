@@ -4,6 +4,7 @@ import { updateGame } from '../data/games';
 import type { GameDoc } from '../data/model';
 import type { Color } from '../types';
 import { patchSgfMeta, sgfInfo } from '../sgf';
+import { useBackdropDismiss } from '../backdrop';
 import './UploadGameModal.css';
 
 /** Edit a game's metadata — name, date, event, players/ranks, result, ruleset, komi,
@@ -80,13 +81,12 @@ export function EditGameModal({ game, onClose, onSaved }: {
   };
 
   return (
-    <div className="review-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="review-modal-backdrop" {...useBackdropDismiss(onClose)} role="presentation">
       <div
         className="review-modal upload-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Edit game"
-        onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className="review-modal-close" onClick={onClose} aria-label="Close">×</button>
         <h2>Edit game</h2>

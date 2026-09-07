@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { deleteFoxPlayer, onboardFoxAccount, setFoxAccountMine, syncFoxAccount } from '../data/fox';
 import type { FoxAccountDoc, GameDoc } from '../data/model';
+import { useBackdropDismiss } from '../backdrop';
 
 const shortDate = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -84,13 +85,12 @@ export function ManagePlayersModal({
   };
 
   return (
-    <div className="review-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="review-modal-backdrop" {...useBackdropDismiss(onClose)} role="presentation">
       <div
         className="review-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Manage players"
-        onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className="review-modal-close" onClick={onClose} aria-label="Close">×</button>
         <h2>Manage players</h2>

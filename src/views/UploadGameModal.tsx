@@ -3,6 +3,7 @@ import { saveGame } from '../data/games';
 import type { GameDoc } from '../data/model';
 import type { Color } from '../types';
 import { mainlineMovesFromSgf, setupStonesFromSgf, sgfInfo, standardHandicapStones, toSgf } from '../sgf';
+import { useBackdropDismiss } from '../backdrop';
 import './UploadGameModal.css';
 
 /** Paste (or pick a file of) SGF, adjust the metadata, save it as an
@@ -125,13 +126,12 @@ export function UploadGameModal({ ownerUid, onClose, onSaved }: {
   };
 
   return (
-    <div className="review-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="review-modal-backdrop" {...useBackdropDismiss(onClose)} role="presentation">
       <div
         className="review-modal upload-modal"
         role="dialog"
         aria-modal="true"
         aria-label="Upload game"
-        onClick={(e) => e.stopPropagation()}
       >
         <button type="button" className="review-modal-close" onClick={onClose} aria-label="Close">×</button>
         <h2>Upload game</h2>
