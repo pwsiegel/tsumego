@@ -313,9 +313,8 @@
   font-size: 0.75rem;
 }
 
-/* A shared game shows its link badge without hovering — being public is state
-   worth seeing at a glance, not something to go looking for. */
+/* Shared games tint their link control, so hovering a card tells you whether
+   it is public — without parking a badge on the board. */
 .game-card-share.active {
-  opacity: 1;
   background: var(--accent);
 }

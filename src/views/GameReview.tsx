@@ -867,17 +867,6 @@ export function GameReview({ fresh = false, shared = false }: {
             {analyzeOn ? 'AI review: on' : 'AI review'}
           </button>
         )}
-        {!fresh && (
-          <button
-            type="button"
-            className="gr-gear"
-            onClick={() => downloadSgf(game)}
-            title="Download this game as an SGF file"
-            aria-label="Download SGF"
-          >
-            ⤓
-          </button>
-        )}
         {analyzing && (
           <button
             type="button"
@@ -893,6 +882,17 @@ export function GameReview({ fresh = false, shared = false }: {
           <span className="gr-visits" title="Playouts behind the current analysis">
             {currentAnalysis.rootVisits.toLocaleString()}
           </span>
+        )}
+        {!fresh && (
+          <button
+            type="button"
+            className="gr-gear"
+            onClick={() => downloadSgf(game)}
+            title="Download this game as an SGF file"
+            aria-label="Download SGF"
+          >
+            ⤓
+          </button>
         )}
       </div>
 
