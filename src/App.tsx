@@ -92,6 +92,22 @@ export default function App() {
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
 
   if (loading) return <div className="center-screen"><Spinner /></div>;
+
+  // A shared game is public: it renders above the sign-in gate, with no sidebar
+  // and no account. Matched here rather than in the route table below because
+  // everything under that table assumes a signed-in, allowlisted profile.
+  if (location.pathname.startsWith('/shared/')) {
+    return (
+      <EngineHubProvider>
+        <main className="app-main app-main-bare">
+          <Routes>
+            <Route path="/shared/:id" element={<GameReview key="shared" shared />} />
+          </Routes>
+        </main>
+      </EngineHubProvider>
+    );
+  }
+
   if (!user) return <Login />;
   if (!profile) {
     return (

@@ -56,3 +56,6 @@ button.primary, .primary {
 
 .field { display: flex; flex-direction: column; gap: 0.25rem; max-width: 320px; margin: 0.75rem 0; }
 .field input, .field select { padding: 0.4rem; border-radius: 6px; border: 1px solid var(--border, #ccc); }
+
+/* A shared game renders without the sidebar, so the main column owns the page. */
+.app-main-bare { width: 100%; }

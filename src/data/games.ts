@@ -69,6 +69,11 @@ export async function deleteGame(id: string): Promise<void> {
 }
 
 /** Patch fields of a game doc (metadata edits — never moves). */
+/** The link that opens a shared game. Hash routing, so the path lives after #. */
+export function shareLink(gameId: string): string {
+  return `${window.location.origin}${import.meta.env.BASE_URL}#/shared/${gameId}`;
+}
+
 export async function updateGame(
   id: string, patch: { [K in keyof GameDoc]?: GameDoc[K] | ReturnType<typeof deleteField> },
 ): Promise<void> {

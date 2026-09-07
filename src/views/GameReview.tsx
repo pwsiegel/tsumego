@@ -70,9 +70,14 @@ function scoreBefore(points: Point[], move: number): number | null {
 /** The board surface, in two modes. Review: step the game, branch variations,
  * analyze. Play: the human-like net answers your moves at the leaf of whatever
  * line you're on — so a game you play from a reviewed position is just another
- * variation of it. `fresh` starts from an empty board (the /play entry), where
+ * variation of it. `shared` is the read-only view behind a public link: no
+ * account, no persistence, analysis off until the viewer asks for it. `fresh`
+ * starts from an empty board (the /play entry), where
  * the first line you play becomes the game's mainline and Save persists it. */
-export function GameReview({ fresh = false }: { fresh?: boolean }) {
+export function GameReview({ fresh = false, shared = false }: {
+  fresh?: boolean;
+  shared?: boolean;
+}) {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -84,7 +89,9 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
   const [cursor, setCursor] = useState(0);
   // Analysis is on whenever you're in review mode; play mode never analyzes.
   const [mode, setMode] = useState<Mode>(fresh ? 'play' : 'review');
-  const [analyzeOn, setAnalyzeOn] = useState(true);
+  // A shared viewer opts in: the net is a ~98 MB download nobody should pay
+  // for just to look at a game.
+  const [analyzeOn, setAnalyzeOn] = useState(!shared);
   const { model, visits, batchOverride, engineReady, leaseStatus, play, openSettings } = useEngineHub();
   // Play mode: the side you're taking, the human net's own score estimates
   // (keyed by node, like analyzedScores), and the alert-mode reveal.
@@ -181,13 +188,13 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
   // Which participant (if any) is one of the game owner's own accounts — for the
   // win/loss accent. Readable by the owner and, per the rules, a linked teacher.
   useEffect(() => {
-    if (!game || game.source !== 'fox') return;
+    if (!game || game.source !== 'fox' || !user) return;
     let on = true;
     listFoxAccounts(game.ownerUid)
       .then((a) => { if (on) setMyUids(new Set(a.filter((x) => x.isMine).map((x) => x.uid))); })
       .catch(() => { if (on) setMyUids(new Set()); });
     return () => { on = false; };
-  }, [game]);
+  }, [game, user]);
 
   // (Re)build the variation tree whenever a different game is shown; start the
   // cursor at the end of the mainline (render-time adjustment, not an effect).
@@ -224,7 +231,7 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
   // mainline tree. Flush any pending write before switching games. Skipped
   // while the game is unsaved — it has no id to hang a review on.
   useEffect(() => {
-    if (fresh || !user || !game) return;
+    if (fresh || shared || !user || !game) return;
     let active = true;
     const ownerUid = user.uid;
     const gameId = game.id;
@@ -242,18 +249,18 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
       })
       .catch(() => { /* keep the session-only tree on failure */ });
     return () => { active = false; flush(); };
-  }, [fresh, user, game, mainlineMoves, flush]);
+  }, [fresh, shared, user, game, mainlineMoves, flush]);
 
   // Debounce a persist whenever the tree gains/loses variation nodes.
   useEffect(() => {
-    if (fresh || !user || !game || !tree) return;
+    if (fresh || shared || !user || !game || !tree) return;
     const nodes = serializeVariations(tree);
     const json = JSON.stringify(nodes);
     if (json === lastSavedRef.current) { dirtyRef.current = null; return; }
     dirtyRef.current = { json, nodes, gameId: game.id, ownerUid: user.uid };
     if (saveTimerRef.current != null) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(flush, 1000);
-  }, [tree, fresh, user, game, flush]);
+  }, [tree, fresh, shared, user, game, flush]);
 
   // Flush a pending write when leaving the page.
   useEffect(() => flush, [flush]);
@@ -792,7 +799,9 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
   return (
     <div className={`gr${outcome ? ` gr--${outcome}` : ''}`}>
       <div className="gr-head">
-        <Link to={backTo} className="gr-back">← Games</Link>
+        {shared
+          ? <Link to="/" className="gr-back">Go training</Link>
+          : <Link to={backTo} className="gr-back">← Games</Link>}
         <h1 className="gr-title">
           {fresh ? <>New game <span className="gr-vs">vs.</span> KataGo <span className="gr-rank">[{rankLabel(play.rank)}]</span></> : (
             <>
@@ -820,14 +829,16 @@ export function GameReview({ fresh = false }: { fresh?: boolean }) {
           )}
         </span>
         <div className="gr-head-spacer" />
-        <div className="gr-mode" role="group" aria-label="Mode">
-          {(['play', 'review'] as Mode[]).map((m) => (
-            <button key={m} type="button" className={mode === m ? 'active' : ''} onClick={() => enterMode(m)}>
-              {m === 'play' ? 'Play' : 'Review'}
-            </button>
-          ))}
-        </div>
-        {mode === 'play' && (
+        {!shared && (
+          <div className="gr-mode" role="group" aria-label="Mode">
+            {(['play', 'review'] as Mode[]).map((m) => (
+              <button key={m} type="button" className={mode === m ? 'active' : ''} onClick={() => enterMode(m)}>
+                {m === 'play' ? 'Play' : 'Review'}
+              </button>
+            ))}
+          </div>
+        )}
+        {!shared && mode === 'play' && (
           <>
             <button
               type="button"

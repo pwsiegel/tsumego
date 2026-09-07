@@ -14,6 +14,7 @@ import { FilterChips, type Chip } from '../FilterChips';
 import { ManagePlayersModal } from './ManagePlayersModal';
 import { UploadGameModal } from './UploadGameModal';
 import { EditGameModal } from './EditGameModal';
+import { ShareGameModal } from './ShareGameModal';
 import './Review.css';
 
 const LOCAL_AI = 'local-ai';
@@ -136,12 +137,13 @@ function resultLabel(g: GameDoc): string {
  * (e.g. a student's shared game) renders the card without the delete control.
  * `outcome` (win/loss for one of the viewer's own accounts) tints the border
  * and result. */
-function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
+function GameCard({ game, outcome, onOpen, onDelete, onEdit, onShare }: {
   game: GameDoc;
   outcome: 'win' | 'loss' | null;
   onOpen: () => void;
   onDelete?: () => void;
   onEdit?: () => void;
+  onShare?: () => void;
 }) {
   const moves = useMemo(() => movesFromSgf(game.sgf), [game.sgf]);
   const stones = useMemo(
@@ -187,6 +189,17 @@ function GameCard({ game, outcome, onOpen, onDelete, onEdit }: {
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
         >
           ✎
+        </button>
+      )}
+      {onShare && (
+        <button
+          type="button"
+          className={`game-card-del game-card-share${game.shared ? ' active' : ''}`}
+          aria-label={game.shared ? 'Shared — manage the link' : 'Share game'}
+          title={game.shared ? 'Shared publicly — manage the link' : 'Share game'}
+          onClick={(e) => { e.stopPropagation(); onShare(); }}
+        >
+          🔗
         </button>
       )}
       <div className="game-card-board">
@@ -241,6 +254,7 @@ export function Review({ teacherMode = false, scope = 'all' }: {
   const [managing, setManaging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<GameDoc | null>(null);
+  const [sharing, setSharing] = useState<GameDoc | null>(null);
   // Page lives in the URL so opening a game and coming back (button or browser
   // back) returns to the same page.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -424,6 +438,7 @@ export function Review({ teacherMode = false, scope = 'all' }: {
               onOpen={() => navigate(`/review/${g.id}`, { state: { from: backTo } })}
               onDelete={teacherMode ? undefined : () => remove(g.id)}
               onEdit={teacherMode ? undefined : () => setEditing(g)}
+              onShare={teacherMode ? undefined : () => setSharing(g)}
             />
           ))}
         </div>
@@ -443,6 +458,16 @@ export function Review({ teacherMode = false, scope = 'all' }: {
         </>
       )}
 
+      {sharing && (
+        <ShareGameModal
+          game={sharing}
+          onClose={() => setSharing(null)}
+          onChanged={(g) => {
+            setSharing(g);
+            setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)));
+          }}
+        />
+      )}
       {editing && (
         <EditGameModal
           game={editing}

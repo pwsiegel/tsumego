@@ -123,6 +123,9 @@ export type GameDoc = {
   name?: string;
   // When the game was played and where, as opposed to `createdAt` (when the
   // record was added here). Absent on games that never carried either.
+  // Readable by anyone holding the link — see the games rule in firestore.rules.
+  // Absent means private, which is every game until its owner shares it.
+  shared?: boolean;
   date?: string;                      // SGF DT, normally YYYY-MM-DD
   event?: string;                     // SGF EV; sources imply one, see gameEvent
   // play vs KataGo and uploads — the owner's side, when known

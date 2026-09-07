@@ -307,3 +307,15 @@
   right: 3.55rem;
   font-size: 0.8rem;
 }
+
+.game-card-share {
+  right: 5.2rem;
+  font-size: 0.75rem;
+}
+
+/* A shared game shows its link badge without hovering — being public is state
+   worth seeing at a glance, not something to go looking for. */
+.game-card-share.active {
+  opacity: 1;
+  background: var(--accent);
+}

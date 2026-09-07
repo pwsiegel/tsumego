@@ -93,3 +93,12 @@
   color: var(--text);
   font: inherit;
 }
+
+.share-modal { max-width: 32rem; }
+.share-toggle {
+  display: flex; gap: 0.6rem; align-items: flex-start;
+  margin: 0.5rem 0 1rem; cursor: pointer;
+}
+.share-toggle input { margin-top: 0.2rem; }
+.share-toggle > span { display: flex; flex-direction: column; gap: 0.25rem; }
+.share-note { font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; }
